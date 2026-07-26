@@ -765,13 +765,8 @@ function showImportPreviewModal(
 
   closeBtn.addEventListener("click", close);
   replaceBtn.addEventListener("click", () => {
-    if (
-      !confirm(
-        "Replace this browser’s vault with the backup?" +
-          previewConfirmSummary(preview) +
-          "\n\nThis cannot be undone for data that exists only here.",
-      )
-    ) {
+    // Diff already shown in this modal — keep confirm short.
+    if (!confirm("Replace this browser’s vault with the backup?")) {
       return;
     }
     close();
