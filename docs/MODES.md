@@ -50,8 +50,20 @@ Default mode is **browser** — visitors get a working vault with no Freenet.
 
 To try Freenet from Pages, users still need a local peer; HTTPS→`ws://127.0.0.1` may be blocked (mixed content). Prefer HTTP local UI or Freenet web container for Freenet mode.
 
+## Choosing multi-device (recommended UX)
+
+**Do not** pick VaultSync at unlock. Flow:
+
+1. Create / unlock the **browser vault** (default on GitHub Pages).
+2. Use the vault normally.
+3. When you want another PC:
+   - **Export → Import** (always works), or  
+   - **Settings → Multi-device & Sync** → opt into Freenet (peer required), then **Sync**.
+
+VaultSync is **optional** and tied to the **same** vault identity (master passphrase → owner key). It is not a separate “login” product.
+
 ## Choosing a mode in the UI
 
-Create/unlock screens show links:
+Advanced backends are under a collapsed “Advanced backends” control:
 
-`browser · freenet · dev (Rust) · mock`
+`browser (default) · freenet · dev (Rust) · mock`

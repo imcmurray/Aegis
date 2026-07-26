@@ -274,15 +274,23 @@ function modeHint(): string {
     return "Using the local Rust vault server (real Argon2id + XChaCha20-Poly1305).";
   }
   if (modeLabel.includes("freenet")) {
-    return "Using Freenet vault-delegate (optional production path — requires a Freenet peer).";
+    return "Freenet vault-delegate — multi-device Sync available after unlock (requires a local peer).";
   }
   if (modeLabel.includes("browser")) {
-    return "Browser vault: real Argon2id + XChaCha20 in WASM, sealed secrets in IndexedDB. No Freenet peer required. Use ?mode=freenet if you run Freenet.";
+    return "This browser’s vault (real crypto, IndexedDB). Multi-device is optional later via Export or Freenet Sync.";
   }
   if (modeLabel.includes("mock")) {
     return "Legacy mock vault (not production crypto). Prefer default browser mode.";
   }
   return "Select a mode below.";
+}
+
+function isBrowserMode(): boolean {
+  return modeLabel.includes("browser") && !modeLabel.includes("freenet");
+}
+
+function isFreenetMode(): boolean {
+  return modeLabel.includes("freenet");
 }
 
 async function render() {
@@ -348,17 +356,25 @@ async function render() {
 }
 
 function modeLinks(): HTMLElement {
+  // Collapsed “advanced” — most users stay on browser vault.
+  const details = el("details", { class: "advanced-modes" });
+  details.append(
+    el("summary", {
+      class: "hint",
+      text: "Advanced backends (optional)",
+    }),
+  );
   const row = el("p", { class: "hint" }, [
-    "Modes: ",
     el("a", { href: "?mode=browser", text: "browser" }),
-    " · ",
+    " (default) · ",
     el("a", { href: "?mode=freenet", text: "freenet" }),
     " · ",
     el("a", { href: "?mode=dev", text: "dev (Rust)" }),
     " · ",
     el("a", { href: "?mode=mock", text: "mock" }),
   ]);
-  return row;
+  details.append(row);
+  return details;
 }
 
 function renderCreate() {
@@ -409,6 +425,12 @@ function renderCreate() {
   card.append(el("label", { text: "Master passphrase" }), pw);
   card.append(el("label", { text: "Confirm" }), pw2);
   card.append(btn);
+  card.append(
+    el("p", {
+      class: "hint",
+      text: "VaultSync / multi-device is optional. Create here first; enable Sync later in Settings if you want Freenet mesh access on another PC.",
+    }),
+  );
 
   // Import encrypted backup
   const importCard = el("div", { class: "card" });
@@ -416,7 +438,7 @@ function renderCreate() {
   importCard.append(
     el("p", {
       class: "hint",
-      text: "Restore an .aegis encrypted export into this empty vault store.",
+      text: "Restore an .aegis encrypted export into this empty vault store (good way to move from another PC without Freenet).",
     }),
   );
   const fileInput = el("input", {
@@ -527,7 +549,13 @@ function renderUnlock() {
   });
   recCard.append(el("label", { text: "Recovery key" }), rec, recBtn);
 
-  app.append(card, recCard);
+  // No separate “VaultSync unlock” — multi-device is optional after unlock (Settings / Sync).
+  const tip = el("p", {
+    class: "hint",
+    text: "Tip: after unlock, use Export for another PC, or Settings → Multi-device to opt into Freenet Sync.",
+  });
+
+  app.append(card, recCard, tip, modeLinks());
 }
 
 const CONTRACT_STATE_KEY = "aegis.vaultSyncState";
@@ -715,7 +743,7 @@ async function renderVault() {
     window.alert(lines);
   });
 
-  syncBtn.addEventListener("click", async () => {
+  async function runSync() {
     syncBtn.disabled = true;
     statusLine.textContent = "Syncing…";
     try {
@@ -743,14 +771,17 @@ async function renderVault() {
         return;
       }
 
-      // Browser / dev: local MVR only (file or secret-store / IndexedDB path).
+      // Browser / dev: local MVR only — multi-device mesh needs Freenet mode (Settings).
       const resp = await client.request({ op: "sync_now" });
       if (resp.type === "error") {
         statusLine.textContent = `Sync: ${resp.message}`;
         return;
       }
       if (resp.type === "synced") {
-        statusLine.textContent = `Sync: ${resp.action} — ${resp.detail} (${resp.remote_revisions} rev)`;
+        const extra = isBrowserMode()
+          ? " · local only (enable Freenet in Settings for multi-PC mesh)"
+          : "";
+        statusLine.textContent = `Sync: ${resp.action} — ${resp.detail} (${resp.remote_revisions} rev)${extra}`;
         await refreshList();
         await refreshFolders();
         return;
@@ -761,7 +792,10 @@ async function renderVault() {
     } finally {
       syncBtn.disabled = false;
     }
-  });
+  }
+
+  syncBtn.addEventListener("click", () => void runSync());
+  window.addEventListener("aegis-sync-now", () => void runSync());
 
   healthBtn.addEventListener("click", async () => {
     statusLine.textContent = "Analyzing passwords…";
@@ -1469,7 +1503,7 @@ function showHealthModal(
 
 function showSettingsModal(
   onSaved: () => void,
-  openSection: "autolock" | "passphrase" | "recovery" = "autolock",
+  openSection: "autolock" | "passphrase" | "recovery" | "multidevice" = "autolock",
 ) {
   const overlay = el("div", { class: "modal-overlay" });
   const modal = el("div", { class: "modal card" });
@@ -1533,6 +1567,96 @@ function showSettingsModal(
     accordion.append(root);
     panels.push({ id, root, body, chevron });
   }
+
+  // —— Multi-device (optional VaultSync / Export) ——
+  addSection(
+    "multidevice",
+    "Multi-device & Sync",
+    isFreenetMode() ? "Freenet Sync available" : "Optional — off by default",
+    (body) => {
+      body.append(
+        el("p", {
+          class: "hint",
+          text:
+            "Your vault is always local-first. Multi-device is opt-in: you choose whether to share encrypted state with another PC.",
+        }),
+      );
+
+      // Path A — Export (always works)
+      body.append(el("h3", { class: "settings-subhead", text: "Any PC (no Freenet)" }));
+      body.append(
+        el("p", {
+          class: "hint",
+          text: "Use Export in the toolbar to download an encrypted .aegis backup, then Import on the other computer with the same passphrase.",
+        }),
+      );
+
+      // Path B — Freenet VaultSync
+      body.append(el("h3", { class: "settings-subhead", text: "Freenet mesh (VaultSync)" }));
+      if (isFreenetMode() && client.freenetApi) {
+        body.append(
+          el("p", {
+            class: "hint",
+            text:
+              "You are on Freenet. After unlock, use Sync in the toolbar to push/pull encrypted revisions under your owner key (derived from your master passphrase). Nobody can sync as you without that passphrase.",
+          }),
+        );
+        const syncNow = el("button", {
+          class: "primary",
+          text: "Sync now",
+        }) as HTMLButtonElement;
+        syncNow.addEventListener("click", () => {
+          overlay.remove();
+          // Trigger the same path as the toolbar Sync button
+          document.querySelector<HTMLButtonElement>("button.primary, button")?.blur();
+          void (async () => {
+            // Re-open is awkward — fire a custom event the vault toolbar listens for
+            window.dispatchEvent(new CustomEvent("aegis-sync-now"));
+          })();
+        });
+        body.append(syncNow);
+      } else if (isBrowserMode()) {
+        body.append(
+          el("p", {
+            class: "hint",
+            text:
+              "To use live multi-device Sync over Freenet: install a Freenet peer, then open Aegis with Freenet mode. Your vault identity is still your master passphrase (owner key) — not a browser or Google account.",
+          }),
+        );
+        const freenetLink = el("a", {
+          href: "?mode=freenet&register=1",
+          class: "button-link",
+          text: "Switch to Freenet mode (register delegate)",
+        }) as HTMLAnchorElement;
+        freenetLink.addEventListener("click", (e) => {
+          // Full navigation is intentional — different backend store
+          if (
+            !confirm(
+              "Freenet mode uses the peer’s secret store (separate from this browser vault). " +
+                "Export a backup first if you want to move this vault. Continue?",
+            )
+          ) {
+            e.preventDefault();
+          }
+        });
+        body.append(freenetLink);
+        body.append(
+          el("p", {
+            class: "hint",
+            text:
+              "Note: browser IndexedDB and Freenet delegate storage are separate until you Import an export into Freenet mode (or the reverse).",
+          }),
+        );
+      } else {
+        body.append(
+          el("p", {
+            class: "hint",
+            text: "Multi-device Sync is available in Freenet mode. Export still works from any backend.",
+          }),
+        );
+      }
+    },
+  );
 
   // —— Auto-lock ——
   addSection(

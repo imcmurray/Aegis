@@ -380,6 +380,44 @@ button:disabled {
   font-size: 0.78rem;
 }
 
+.advanced-modes {
+  margin: 0.75rem 0 0;
+}
+
+.advanced-modes summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.advanced-modes[open] summary {
+  margin-bottom: 0.35rem;
+}
+
+.settings-subhead {
+  margin: 0.85rem 0 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+a.button-link {
+  display: inline-block;
+  margin: 0.35rem 0 0.5rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--accent-hover);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+a.button-link:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-input));
+}
+
 .mono {
   font-family: var(--mono);
   font-size: 0.9rem;
