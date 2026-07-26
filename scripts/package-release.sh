@@ -45,6 +45,7 @@ cp -f "$ROOT/README.md" "$OUT/"
 cat > "$OUT/MANIFEST.json" <<EOF
 {
   "app": "Aegis",
+  "version": "0.1.0",
   "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "default_mode": "browser",
   "components": {
