@@ -734,7 +734,7 @@ button:disabled {
 /* Import preview (replace dry-run) */
 .import-preview-actions {
   margin-top: 0.35rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.15rem;
 }
 
 .import-preview-actions button {
@@ -743,13 +743,17 @@ button:disabled {
   min-width: 8rem;
 }
 
-.import-preview {
-  margin-top: 0.5rem;
-  padding: 0.7rem 0.75rem;
+.import-preview-modal {
+  max-width: min(42rem, 100%);
+}
+
+.import-preview-body {
+  margin: 0.35rem 0 0.85rem;
+  padding: 0.75rem 0.85rem;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: color-mix(in srgb, var(--bg) 55%, var(--bg-elevated));
-  max-height: 16rem;
+  max-height: min(55vh, 28rem);
   overflow: auto;
 }
 
@@ -758,10 +762,6 @@ button:disabled {
   flex-direction: column;
   gap: 0.2rem;
   margin-bottom: 0.5rem;
-}
-
-.import-preview-head strong {
-  font-size: 0.9rem;
 }
 
 .import-preview-section {
@@ -782,6 +782,15 @@ button:disabled {
   padding-left: 1.1rem;
   font-size: 0.82rem;
   line-height: 1.4;
+}
+
+.import-preview-modal-actions {
+  margin-top: 0.25rem;
+}
+
+.import-preview-modal-actions button {
+  flex: 1;
+  min-width: 8rem;
 }
 
 .import-preview-list li {

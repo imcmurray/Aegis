@@ -593,16 +593,13 @@ function previewListSection(
   return sec;
 }
 
-/** Render a safe local-vs-backup diff into a container. */
-function renderImportPreviewPanel(
-  host: HTMLElement,
+/** Build the local-vs-backup diff body (no secrets). */
+function buildImportPreviewBody(
   preview: Extract<VaultResponse, { type: "import_preview" }>,
-) {
-  host.replaceChildren();
-  host.classList.remove("hidden");
+): HTMLElement {
+  const host = el("div", { class: "import-preview-body" });
 
   const head = el("div", { class: "import-preview-head" });
-  head.append(el("strong", { text: "Changes if you replace" }));
   if (preview.local_available) {
     head.append(
       el("span", {
@@ -687,11 +684,13 @@ function renderImportPreviewPanel(
 
   if (preview.folders_only_local.length || preview.folders_only_backup.length) {
     const folderLines: string[] = [];
-    for (const n of preview.folders_only_local) folderLines.push(`− folder “${n}” (local only)`);
-    for (const n of preview.folders_only_backup) folderLines.push(`+ folder “${n}” (backup only)`);
-    host.append(
-      previewListSection("Folders", folderLines, "Folders match."),
-    );
+    for (const n of preview.folders_only_local) {
+      folderLines.push(`− folder “${n}” (local only)`);
+    }
+    for (const n of preview.folders_only_backup) {
+      folderLines.push(`+ folder “${n}” (backup only)`);
+    }
+    host.append(previewListSection("Folders", folderLines, "Folders match."));
   }
 
   if (
@@ -707,6 +706,85 @@ function renderImportPreviewPanel(
       }),
     );
   }
+
+  return host;
+}
+
+function previewConfirmSummary(
+  preview: Extract<VaultResponse, { type: "import_preview" }> | null,
+): string {
+  if (preview?.local_available) {
+    const lost = preview.only_local.length;
+    const gained = preview.only_backup.length;
+    const changed = preview.changed.length;
+    let summary =
+      `\n\nPreview: −${lost} only-local · +${gained} only-backup · ~${changed} changed · ` +
+      `${preview.unchanged_count} unchanged.`;
+    if (lost > 0) {
+      summary += `\nEntries only on this browser will be lost.`;
+    }
+    return summary;
+  }
+  if (!preview) {
+    return "\n\nTip: use Preview changes first to see what differs.";
+  }
+  return "";
+}
+
+/** Modal: full replace diff + optional Replace action. */
+function showImportPreviewModal(
+  preview: Extract<VaultResponse, { type: "import_preview" }>,
+  onReplace: () => void | Promise<void>,
+) {
+  const overlay = el("div", { class: "modal-overlay" });
+  const modal = el("div", { class: "modal card import-preview-modal" });
+  modal.append(el("h2", { text: "Changes if you replace" }));
+  modal.append(
+    el("p", {
+      class: "hint",
+      text: "Dry-run only — nothing has been written yet. Secret values are never shown.",
+    }),
+  );
+  modal.append(buildImportPreviewBody(preview));
+
+  const actions = el("div", { class: "row import-preview-modal-actions" });
+  const closeBtn = el("button", { text: "Close" }) as HTMLButtonElement;
+  const replaceBtn = el("button", {
+    class: "danger",
+    text: "Replace local vault",
+  }) as HTMLButtonElement;
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") close();
+  };
+  document.addEventListener("keydown", onKey);
+
+  closeBtn.addEventListener("click", close);
+  replaceBtn.addEventListener("click", () => {
+    if (
+      !confirm(
+        "Replace this browser’s vault with the backup?" +
+          previewConfirmSummary(preview) +
+          "\n\nThis cannot be undone for data that exists only here.",
+      )
+    ) {
+      return;
+    }
+    close();
+    void onReplace();
+  });
+  actions.append(closeBtn, replaceBtn);
+  modal.append(actions);
+
+  overlay.append(modal);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+  document.body.append(overlay);
 }
 
 /** Replace-from-backup fields for unlock screen (mounted into a collapsible body). */
@@ -732,7 +810,6 @@ function mountReplaceImportForm(container: HTMLElement) {
     autocomplete: "off",
   }) as HTMLInputElement;
 
-  const previewPanel = el("div", { class: "import-preview hidden" });
   let lastPreview:
     | Extract<VaultResponse, { type: "import_preview" }>
     | null = null;
@@ -762,6 +839,36 @@ function mountReplaceImportForm(container: HTMLElement) {
     return new Uint8Array(await file.arrayBuffer());
   }
 
+  async function doReplace() {
+    setError(container, null);
+    const file = fileInput.files?.[0];
+    if (!file) {
+      setError(container, "Choose a backup file first.");
+      return;
+    }
+    if (!importPw.value) {
+      setError(container, "Enter the passphrase used when exporting.");
+      return;
+    }
+    importBtn.disabled = true;
+    previewBtn.disabled = true;
+    const buf = new Uint8Array(await file.arrayBuffer());
+    const resp = await client.request({
+      op: "import_encrypted",
+      blob: buf,
+      passphrase: importPw.value,
+      replace: true,
+    });
+    importBtn.disabled = false;
+    previewBtn.disabled = false;
+    if (resp.type === "error") {
+      setError(container, resp.message);
+      return;
+    }
+    unlockedViaRecovery = false;
+    await render();
+  }
+
   previewBtn.addEventListener("click", async () => {
     const buf = await readBlob();
     if (!buf) return;
@@ -784,53 +891,23 @@ function mountReplaceImportForm(container: HTMLElement) {
       return;
     }
     lastPreview = resp;
-    renderImportPreviewPanel(previewPanel, resp);
+    showImportPreviewModal(resp, doReplace);
   });
 
   importBtn.addEventListener("click", async () => {
     const buf = await readBlob();
     if (!buf) return;
 
-    let summary = "";
-    if (lastPreview?.local_available) {
-      const lost = lastPreview.only_local.length;
-      const gained = lastPreview.only_backup.length;
-      const changed = lastPreview.changed.length;
-      summary =
-        `\n\nPreview: −${lost} only-local · +${gained} only-backup · ~${changed} changed · ` +
-        `${lastPreview.unchanged_count} unchanged.`;
-      if (lost > 0) {
-        summary += `\nEntries only on this browser will be lost.`;
-      }
-    } else if (!lastPreview) {
-      summary = "\n\nTip: use Preview changes first to see what differs.";
-    }
-
     if (
       !confirm(
         "Replace this browser’s vault with the backup?" +
-          summary +
+          previewConfirmSummary(lastPreview) +
           "\n\nThis cannot be undone for data that exists only here.",
       )
     ) {
       return;
     }
-    importBtn.disabled = true;
-    previewBtn.disabled = true;
-    const resp = await client.request({
-      op: "import_encrypted",
-      blob: buf,
-      passphrase: importPw.value,
-      replace: true,
-    });
-    importBtn.disabled = false;
-    previewBtn.disabled = false;
-    if (resp.type === "error") {
-      setError(container, resp.message);
-      return;
-    }
-    unlockedViaRecovery = false;
-    await render();
+    await doReplace();
   });
 
   container.append(el("label", { text: "Backup file" }), fileInput);
@@ -839,7 +916,7 @@ function mountReplaceImportForm(container: HTMLElement) {
     el("label", { text: "Local master passphrase (optional)" }),
     localPw,
   );
-  container.append(row, previewPanel);
+  container.append(row);
 }
 
 function unlockAltSection(
