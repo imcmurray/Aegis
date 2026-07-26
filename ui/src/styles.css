@@ -901,6 +901,70 @@ a.button-link:hover {
   margin-top: 0.5rem;
 }
 
+/* —— Drag & drop entries between folders —— */
+body.is-dnd {
+  cursor: grabbing;
+  user-select: none;
+}
+
+body.is-dnd .tree-folder-header,
+body.is-dnd .tree-folder-children {
+  cursor: copy;
+}
+
+.tree-entry.is-dragging {
+  opacity: 0.35;
+  transform: scale(0.98);
+}
+
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10000;
+  pointer-events: none;
+  min-width: 10rem;
+  max-width: 16rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: color-mix(in srgb, var(--bg-elevated) 92%, var(--accent));
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.45),
+    0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  opacity: 0.95;
+}
+
+.drag-ghost strong {
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drag-ghost .meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.tree-folder.drop-target,
+.tree-folder-header.drop-target,
+.tree-folder-children.drop-target {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 1px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-elevated)) !important;
+  border-radius: 10px;
+}
+
+.tree-folder.drop-target > .tree-folder-header {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
 .detail-card {
   display: flex;
   flex-direction: column;

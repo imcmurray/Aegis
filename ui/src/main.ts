@@ -1048,11 +1048,88 @@ async function renderVault() {
     return true;
   }
 
+  /** Long-press (≈0.4s) then drag entry; drop on a folder to move. */
+  let dragState: {
+    entryId: string;
+    entryName: string;
+    fromFolder: string | null;
+    ghost: HTMLElement;
+    activeDrop: HTMLElement | null;
+  } | null = null;
+
+  function clearDropHighlights() {
+    treeRoot
+      .querySelectorAll(".drop-target")
+      .forEach((n) => n.classList.remove("drop-target"));
+  }
+
+  function folderKeyFromEl(target: EventTarget | null): string | null {
+    const node = target instanceof Element ? target : null;
+    const zone = node?.closest("[data-drop-folder]") as HTMLElement | null;
+    if (!zone) return null;
+    return zone.getAttribute("data-drop-folder");
+  }
+
+  function setActiveDrop(zone: HTMLElement | null) {
+    if (dragState?.activeDrop === zone) return;
+    clearDropHighlights();
+    if (zone) zone.classList.add("drop-target");
+    if (dragState) dragState.activeDrop = zone;
+  }
+
+  async function moveEntryToFolder(
+    entryId: string,
+    folderKey: string,
+  ): Promise<void> {
+    const folderId = folderKey === "" ? null : folderKey;
+    const r = await client.request({ op: "get_entry", id: entryId });
+    if (r.type !== "entry") {
+      statusLine.textContent =
+        r.type === "error" ? r.message : "Could not move entry";
+      return;
+    }
+    const cur = r.entry.folder_id ?? null;
+    if (cur === folderId) {
+      statusLine.textContent = "Already in that folder";
+      return;
+    }
+    const next = { ...r.entry, folder_id: folderId };
+    const up = await client.request({ op: "upsert_entry", entry: next });
+    if (up.type === "error") {
+      statusLine.textContent = up.message;
+      return;
+    }
+    expandedFolders.add(folderKey);
+    if (folderId) preferredFolderId = folderId;
+    const destName =
+      folderId == null
+        ? "Uncategorized"
+        : (folders.find((f) => f.id === folderId)?.name ?? "folder");
+    statusLine.textContent = `Moved “${r.entry.name}” → ${destName}`;
+    await refreshTree();
+  }
+
+  function endDrag(commit: boolean, dropKey: string | null) {
+    if (!dragState) return;
+    const { entryId, ghost, fromFolder } = dragState;
+    ghost.remove();
+    clearDropHighlights();
+    document.body.classList.remove("is-dnd");
+    treeRoot
+      .querySelectorAll(".is-dragging")
+      .forEach((n) => n.classList.remove("is-dragging"));
+    dragState = null;
+    if (commit && dropKey !== null && dropKey !== (fromFolder ?? "")) {
+      void moveEntryToFolder(entryId, dropKey);
+    }
+  }
+
   function buildEntryRow(e: EntrySummary): HTMLElement {
     const item = el("div", {
       class: "entry-row tree-entry",
       role: "treeitem",
       tabindex: "0",
+      title: "Click to open · press-and-hold, then drag to a folder",
     });
     const metaParts = [
       e.username?.trim() || "",
@@ -1117,7 +1194,106 @@ async function renderVault() {
     }
 
     item.append(body);
-    item.addEventListener("click", () => void showEntry(e));
+
+    // —— Press-and-hold → ghost drag between folders ——
+    const LONG_MS = 380;
+    let pressTimer: ReturnType<typeof setTimeout> | null = null;
+    let pressOrigin: { x: number; y: number } | null = null;
+    let suppressClick = false;
+
+    const clearPress = () => {
+      if (pressTimer) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+      }
+      pressOrigin = null;
+    };
+
+    const onPointerMove = (ev: PointerEvent) => {
+      if (!dragState) {
+        // Cancel long-press if user moves before threshold
+        if (
+          pressOrigin &&
+          (Math.abs(ev.clientX - pressOrigin.x) > 8 ||
+            Math.abs(ev.clientY - pressOrigin.y) > 8)
+        ) {
+          clearPress();
+        }
+        return;
+      }
+      dragState.ghost.style.transform = `translate(${ev.clientX + 12}px, ${ev.clientY + 12}px)`;
+      const zone = document
+        .elementFromPoint(ev.clientX, ev.clientY)
+        ?.closest("[data-drop-folder]") as HTMLElement | null;
+      setActiveDrop(zone);
+    };
+
+    const onPointerUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      if (dragState) {
+        const key = folderKeyFromEl(
+          document.elementFromPoint(ev.clientX, ev.clientY),
+        );
+        suppressClick = true;
+        endDrag(true, key);
+        setTimeout(() => {
+          suppressClick = false;
+        }, 50);
+      } else {
+        clearPress();
+      }
+    };
+
+    item.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      if ((ev.target as HTMLElement).closest("button, a, input, select")) return;
+      clearPress();
+      pressOrigin = { x: ev.clientX, y: ev.clientY };
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        // Start drag
+        const ghost = el("div", { class: "drag-ghost" });
+        ghost.append(el("strong", { text: e.name }));
+        if (e.username) {
+          ghost.append(el("span", { class: "meta", text: e.username }));
+        }
+        ghost.style.transform = `translate(${ev.clientX + 12}px, ${ev.clientY + 12}px)`;
+        document.body.append(ghost);
+        document.body.classList.add("is-dnd");
+        item.classList.add("is-dragging");
+        dragState = {
+          entryId: e.id,
+          entryName: e.name,
+          fromFolder: e.folder_id,
+          ghost,
+          activeDrop: null,
+        };
+        // Expand all folders so drop targets are visible
+        expandedFolders.add("");
+        for (const f of folders) expandedFolders.add(f.id);
+        void refreshTree();
+        try {
+          item.setPointerCapture(ev.pointerId);
+        } catch {
+          /* ignore */
+        }
+      }, LONG_MS);
+
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerUp);
+    });
+
+    item.addEventListener("click", (ev) => {
+      if (suppressClick || dragState) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        return;
+      }
+      void showEntry(e);
+    });
     item.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" || ev.key === " ") {
         ev.preventDefault();
@@ -1143,12 +1319,14 @@ async function renderVault() {
     const group = el("div", {
       class: open ? "tree-folder open" : "tree-folder",
       role: "group",
+      "data-drop-folder": key,
     });
     const header = el("div", {
       class: "tree-folder-header",
       role: "treeitem",
       "aria-expanded": open ? "true" : "false",
       tabindex: "0",
+      "data-drop-folder": key,
     });
     const chev = el("span", {
       class: "tree-chevron",
@@ -1218,6 +1396,7 @@ async function renderVault() {
       const children = el("div", {
         class: "tree-folder-children",
         role: "group",
+        "data-drop-folder": key,
       });
       if (entries.length === 0) {
         children.append(
