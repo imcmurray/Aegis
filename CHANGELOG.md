@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.1] — 2026-07-26
+
+### Multi-device / unlock UX
+
+- **Replace vault from backup** on the locked unlock screen (`import_encrypted` with `replace: true`) for re-syncing a stale browser
+- **`preview_import` dry-run**: compare local vs backup (only-local, only-backup, changed fields — no secret values)
+- Preview results in a **modal** (“Changes if you replace”) with Close / Replace; short confirm after review
+- Compact full-width unlock card: passphrase + Unlock on one row; recovery and replace side-by-side collapsibles
+
 ## [0.1.0] — 2026-07-26
 
 First public release.
