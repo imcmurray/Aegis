@@ -702,8 +702,9 @@ a.button-link:hover {
   min-height: calc(100vh - 10rem);
 }
 
+/* Details needs more room than the folder tree */
 .vault-layout-tree {
-  grid-template-columns: minmax(18rem, 1.15fr) minmax(16rem, 1fr);
+  grid-template-columns: minmax(14rem, 0.78fr) minmax(22rem, 1.45fr);
 }
 
 .tree-panel {
