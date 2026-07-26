@@ -881,9 +881,13 @@ function renderUnlock() {
   pw.addEventListener("keydown", (e) => {
     if (e.key === "Enter") void submit();
   });
-  card.append(el("label", { text: "Master passphrase" }), pw, btn);
+  const primary = el("div", { class: "unlock-primary" });
+  const primaryFields = el("div", { class: "unlock-primary-fields" });
+  primaryFields.append(el("label", { text: "Master passphrase" }), pw);
+  primary.append(primaryFields, btn);
+  card.append(primary);
 
-  // Secondary paths collapsed so the unlock form fits without scrolling.
+  // Secondary paths side-by-side on wide screens (less vertical scroll).
   const alts = el("div", { class: "unlock-alts" });
 
   alts.append(

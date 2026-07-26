@@ -606,29 +606,48 @@ button:disabled {
   margin-bottom: 0.35rem;
 }
 
-/* Unlock: one card — passphrase primary, recovery/replace collapsed */
+/* Unlock: full-width card — primary row + recovery|replace columns */
 .unlock-card {
-  max-width: 28rem;
-  margin-left: auto;
-  margin-right: auto;
+  max-width: none;
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
 }
 
 .unlock-mode-hint {
-  margin: 0 0 0.85rem;
+  margin: 0 0 0.75rem;
 }
 
-.unlock-card > button.primary {
-  width: 100%;
-  margin-bottom: 0.25rem;
+.unlock-primary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.unlock-primary-fields {
+  min-width: 0;
+}
+
+.unlock-primary-fields input {
+  margin-bottom: 0;
+}
+
+.unlock-primary > button.primary {
+  width: auto;
+  min-width: 7.5rem;
+  margin-bottom: 0;
+  white-space: nowrap;
 }
 
 .unlock-alts {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
   margin-top: 1rem;
   padding-top: 0.85rem;
   border-top: 1px solid var(--border);
+  align-items: start;
 }
 
 .unlock-alt {
@@ -636,6 +655,7 @@ button:disabled {
   border-radius: 8px;
   background: var(--bg-input);
   overflow: hidden;
+  min-width: 0;
 }
 
 .unlock-alt[open] {
@@ -684,13 +704,31 @@ button:disabled {
   width: 100%;
 }
 
+.unlock-alt-body .import-preview-actions button {
+  width: auto;
+}
+
 .unlock-tip {
-  margin: 0.85rem 0 0;
+  margin: 0.75rem 0 0;
   font-size: 0.8rem;
 }
 
 .unlock-card .advanced-modes {
   margin-top: 0.5rem;
+}
+
+@media (max-width: 720px) {
+  .unlock-primary {
+    grid-template-columns: 1fr;
+  }
+
+  .unlock-primary > button.primary {
+    width: 100%;
+  }
+
+  .unlock-alts {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Import preview (replace dry-run) */
