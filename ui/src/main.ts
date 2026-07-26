@@ -13,6 +13,11 @@ import {
   type GeneratorPolicy,
   type HealthReport,
 } from "./messages";
+import {
+  meshCapabilities,
+  probeFreenetPeer,
+  type PeerProbe,
+} from "./peerStatus";
 import { storageSet } from "./storage";
 import { generateTotp } from "./totp";
 
@@ -21,6 +26,7 @@ const app = document.querySelector<HTMLDivElement>("#app")!;
 let client: VaultClient;
 let unlocked = false;
 let modeLabel = "…";
+let peerProbe: PeerProbe | null = null;
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
 let lastActivity = Date.now();
 let clipboardClearTimer: ReturnType<typeof setTimeout> | null = null;
@@ -29,9 +35,20 @@ let lastCopiedSecret: string | null = null;
 /** Set when vault was unlocked via recovery key — nudge user to set a new passphrase. */
 let unlockedViaRecovery = false;
 
+async function refreshPeerProbe(force = false) {
+  peerProbe = await probeFreenetPeer({ force });
+  return peerProbe;
+}
+
+function caps() {
+  return meshCapabilities(peerProbe, Boolean(client?.freenetApi));
+}
+
 async function initClient() {
   client = await createVaultClient();
   modeLabel = client.label;
+  // Peer probe is independent of vault backend (informs Sync / multi-device UX).
+  void refreshPeerProbe(true);
 }
 
 function touchActivity() {
@@ -293,13 +310,75 @@ function isFreenetMode(): boolean {
   return modeLabel.includes("freenet");
 }
 
-async function render() {
-  app.innerHTML = "";
+function buildHeader(): HTMLElement {
+  const c = caps();
+  const peerClass =
+    c.peerOk
+      ? "peer-chip peer-online"
+      : c.blocked
+        ? "peer-chip peer-blocked"
+        : "peer-chip peer-offline";
+  const peerTitle = c.detail;
+  const badges = el("div", { class: "header-badges" }, [
+    el("span", { class: "badge badge-mode", text: modeLabel, title: modeHint() }),
+    el("span", {
+      class: peerClass,
+      text: c.label,
+      title: peerTitle,
+    }),
+  ]);
   const header = el("header", { class: "app-header" }, [
     el("h1", {}, ["Aegis ", el("span", { text: "Password Manager" })]),
-    el("span", { class: "badge", text: modeLabel }),
+    badges,
   ]);
-  app.append(header);
+  return header;
+}
+
+/** Capability strip under header — teaches new users what is available. */
+function buildCapabilityBar(): HTMLElement {
+  const c = caps();
+  const bar = el("div", { class: "capability-bar", role: "status" });
+
+  const item = (
+    kind: "on" | "off" | "warn",
+    title: string,
+    blurb: string,
+  ) => {
+    const card = el("div", { class: `cap-card cap-${kind}` });
+    card.append(el("div", { class: "cap-title", text: title }));
+    card.append(el("div", { class: "cap-blurb", text: blurb }));
+    return card;
+  };
+
+  bar.append(
+    item("on", "This browser", "Create, unlock, and store your vault here."),
+    item(
+      "on",
+      "Export / Import",
+      "Move an encrypted backup to another PC anytime.",
+    ),
+    item(
+      c.canMeshSync ? "on" : c.blocked ? "warn" : "off",
+      "Freenet mesh Sync",
+      c.canMeshSync
+        ? "Peer online — multi-device Sync can publish encrypted vault state."
+        : c.blocked
+          ? "Blocked on HTTPS pages. Open Aegis via local Freenet HTTP to use Sync."
+          : "Peer offline. Start `freenet local` to enable mesh Sync.",
+    ),
+  );
+  return bar;
+}
+
+async function render() {
+  // Refresh peer status (cached ~8s unless forced elsewhere)
+  if (!peerProbe || Date.now() - peerProbe.checkedAt > 12_000) {
+    await refreshPeerProbe(false);
+  }
+
+  app.innerHTML = "";
+  app.append(buildHeader());
+  app.append(buildCapabilityBar());
 
   const status = await client.request({ op: "status" });
   if (status.type === "error") {
@@ -680,10 +759,32 @@ async function renderVault() {
   const syncBtn = el("button", { text: "Sync" }) as HTMLButtonElement;
   const newBtn = el("button", { class: "primary", text: "New entry" }) as HTMLButtonElement;
   const lockMins = Math.round(getAutoLockSeconds() / 60);
+  const c0 = caps();
+  // Mesh Sync needs peer; local sync_now still works but we grey mesh-oriented control
+  // when user expects Freenet multi-device and peer is missing.
+  const meshReady = Boolean(client.freenetApi) && c0.canMeshSync;
+  if (!meshReady && isFreenetMode()) {
+    syncBtn.disabled = true;
+    syncBtn.classList.add("btn-disabled");
+    syncBtn.title = c0.blocked
+      ? "Freenet peer blocked from this page (HTTPS). Open via local peer HTTP."
+      : "Freenet peer offline — start `freenet local` to Sync on the mesh.";
+  } else if (!client.freenetApi && isBrowserMode()) {
+    syncBtn.title =
+      "Local sync only. For multi-PC Freenet mesh, enable Freenet in Settings when a peer is online.";
+  } else {
+    syncBtn.title = meshReady
+      ? "Push/pull encrypted vault state on Freenet (owner-key identity)"
+      : "Local vault sync";
+  }
   const statusLine = el("p", {
     class: "hint",
     id: "status-line",
-    text: `Auto-lock after ${lockMins} min idle`,
+    text: meshReady
+      ? `Peer online · auto-lock ${lockMins} min`
+      : c0.blocked
+        ? `Peer blocked on HTTPS · auto-lock ${lockMins} min · Export still works`
+        : `Peer offline · auto-lock ${lockMins} min · Export still works`,
   });
 
   const clearTotpTimer = () => {
@@ -744,11 +845,18 @@ async function renderVault() {
   });
 
   async function runSync() {
+    const c = caps();
+    if (isFreenetMode() && !c.canMeshSync) {
+      statusLine.textContent = c.blocked
+        ? "Sync unavailable: peer blocked on HTTPS. Open Aegis via freenet local HTTP."
+        : "Sync unavailable: Freenet peer offline. Run `freenet local` and refresh.";
+      return;
+    }
     syncBtn.disabled = true;
     statusLine.textContent = "Syncing…";
     try {
       // Freenet mesh: Get remote VaultSync → merge → Put/Update (owner-key identity).
-      if (client.freenetApi) {
+      if (client.freenetApi && c.canMeshSync) {
         const { freenetVaultSyncRoundTrip } = await import("./vaultSync");
         const summary = await freenetVaultSyncRoundTrip(
           client.freenetApi,
@@ -779,7 +887,7 @@ async function renderVault() {
       }
       if (resp.type === "synced") {
         const extra = isBrowserMode()
-          ? " · local only (enable Freenet in Settings for multi-PC mesh)"
+          ? " · local only (mesh Sync needs Freenet peer — see Settings)"
           : "";
         statusLine.textContent = `Sync: ${resp.action} — ${resp.detail} (${resp.remote_revisions} rev)${extra}`;
         await refreshList();
@@ -790,7 +898,9 @@ async function renderVault() {
     } catch (e) {
       statusLine.textContent = `Sync: ${e instanceof Error ? e.message : String(e)}`;
     } finally {
-      syncBtn.disabled = false;
+      // Re-apply disabled state for freenet-without-peer
+      const c2 = caps();
+      syncBtn.disabled = isFreenetMode() && !c2.canMeshSync;
     }
   }
 
@@ -1569,92 +1679,158 @@ function showSettingsModal(
   }
 
   // —— Multi-device (optional VaultSync / Export) ——
+  const c = caps();
   addSection(
     "multidevice",
     "Multi-device & Sync",
-    isFreenetMode() ? "Freenet Sync available" : "Optional — off by default",
+    c.canMeshSync ? "Peer online · mesh ready" : "Optional · peer not ready",
     (body) => {
       body.append(
         el("p", {
           class: "hint",
           text:
-            "Your vault is always local-first. Multi-device is opt-in: you choose whether to share encrypted state with another PC.",
+            "Your vault is local-first. Multi-device is opt-in after you create or import a vault.",
         }),
       );
 
-      // Path A — Export (always works)
-      body.append(el("h3", { class: "settings-subhead", text: "Any PC (no Freenet)" }));
-      body.append(
+      // Live peer status card
+      const peerCard = el("div", {
+        class: `peer-status-card ${c.peerOk ? "is-online" : c.blocked ? "is-blocked" : "is-offline"}`,
+      });
+      peerCard.append(
+        el("div", { class: "peer-status-row" }, [
+          el("span", {
+            class: `peer-dot ${c.peerOk ? "on" : c.blocked ? "warn" : "off"}`,
+          }),
+          el("strong", {
+            text: c.peerOk
+              ? "Freenet peer detected"
+              : c.blocked
+                ? "Peer blocked on this page"
+                : "No Freenet peer detected",
+          }),
+        ]),
+      );
+      peerCard.append(
         el("p", {
-          class: "hint",
-          text: "Use Export in the toolbar to download an encrypted .aegis backup, then Import on the other computer with the same passphrase.",
+          class: "peer-status-detail",
+          text: c.detail,
         }),
       );
+      const recheck = el("button", {
+        type: "button",
+        class: "btn-ghost",
+        text: "Check again",
+      }) as HTMLButtonElement;
+      recheck.addEventListener("click", async () => {
+        recheck.disabled = true;
+        recheck.textContent = "Checking…";
+        await refreshPeerProbe(true);
+        recheck.disabled = false;
+        recheck.textContent = "Check again";
+        // Rebuild settings to refresh greys / copy
+        overlay.remove();
+        showSettingsModal(onSaved, "multidevice");
+      });
+      peerCard.append(recheck);
+      body.append(peerCard);
 
-      // Path B — Freenet VaultSync
-      body.append(el("h3", { class: "settings-subhead", text: "Freenet mesh (VaultSync)" }));
-      if (isFreenetMode() && client.freenetApi) {
-        body.append(
-          el("p", {
-            class: "hint",
-            text:
-              "You are on Freenet. After unlock, use Sync in the toolbar to push/pull encrypted revisions under your owner key (derived from your master passphrase). Nobody can sync as you without that passphrase.",
-          }),
-        );
-        const syncNow = el("button", {
-          class: "primary",
-          text: "Sync now",
-        }) as HTMLButtonElement;
-        syncNow.addEventListener("click", () => {
-          overlay.remove();
-          // Trigger the same path as the toolbar Sync button
-          document.querySelector<HTMLButtonElement>("button.primary, button")?.blur();
-          void (async () => {
-            // Re-open is awkward — fire a custom event the vault toolbar listens for
-            window.dispatchEvent(new CustomEvent("aegis-sync-now"));
-          })();
+      // Capability rows
+      body.append(el("h3", { class: "settings-subhead", text: "What you can do" }));
+
+      const row = (
+        enabled: boolean,
+        title: string,
+        blurb: string,
+        action?: HTMLElement,
+      ) => {
+        const r = el("div", {
+          class: enabled ? "feature-row" : "feature-row feature-row-disabled",
         });
-        body.append(syncNow);
-      } else if (isBrowserMode()) {
-        body.append(
-          el("p", {
-            class: "hint",
-            text:
-              "To use live multi-device Sync over Freenet: install a Freenet peer, then open Aegis with Freenet mode. Your vault identity is still your master passphrase (owner key) — not a browser or Google account.",
-          }),
+        r.append(
+          el("div", { class: "feature-row-text" }, [
+            el("strong", { text: title }),
+            el("span", { class: "meta", text: blurb }),
+          ]),
         );
-        const freenetLink = el("a", {
-          href: "?mode=freenet&register=1",
-          class: "button-link",
-          text: "Switch to Freenet mode (register delegate)",
-        }) as HTMLAnchorElement;
+        if (action) {
+          if (!enabled) {
+            action.setAttribute("disabled", "true");
+            action.classList.add("btn-disabled");
+            (action as HTMLButtonElement).disabled = true;
+          }
+          r.append(action);
+        }
+        body.append(r);
+      };
+
+      row(
+        true,
+        "Export / Import backup",
+        "Always available. Encrypted .aegis file — best for any PC without Freenet.",
+      );
+
+      const syncNow = el("button", {
+        class: "primary",
+        text: "Sync now",
+      }) as HTMLButtonElement;
+      syncNow.addEventListener("click", () => {
+        overlay.remove();
+        window.dispatchEvent(new CustomEvent("aegis-sync-now"));
+      });
+      row(
+        c.canMeshSync && Boolean(client.freenetApi),
+        "Freenet mesh Sync",
+        c.canMeshSync && client.freenetApi
+          ? "Push/pull encrypted revisions under your owner key (master passphrase)."
+          : !c.canMeshSync
+            ? c.blocked
+              ? "Unavailable on HTTPS static hosting. Use local Freenet HTTP UI."
+              : "Requires a running Freenet peer (`freenet local`)."
+            : "Switch to Freenet mode (below) while a peer is online.",
+        syncNow,
+      );
+
+      // Switch to Freenet mode
+      body.append(el("h3", { class: "settings-subhead", text: "Enable Freenet backend" }));
+      const freenetLink = el("a", {
+        href: "?mode=freenet&register=1",
+        class: c.canUseFreenetMode ? "button-link" : "button-link button-link-disabled",
+        text: c.canUseFreenetMode
+          ? "Open Freenet mode & register delegate"
+          : "Freenet mode (peer required)",
+      }) as HTMLAnchorElement;
+      if (!c.canUseFreenetMode) {
+        freenetLink.setAttribute("aria-disabled", "true");
         freenetLink.addEventListener("click", (e) => {
-          // Full navigation is intentional — different backend store
+          e.preventDefault();
+          window.alert(
+            c.blocked
+              ? "Browsers block Freenet WebSockets from HTTPS pages like GitHub Pages.\n\n" +
+                "Run: freenet local\nThen open Aegis at http://127.0.0.1:7509/… or http://localhost with Vite/serve."
+              : "Start a Freenet peer first:\n\n  freenet local\n\nThen click Check again, and open Freenet mode.",
+          );
+        });
+      } else {
+        freenetLink.addEventListener("click", (e) => {
           if (
             !confirm(
-              "Freenet mode uses the peer’s secret store (separate from this browser vault). " +
+              "Freenet mode uses the peer’s secret store (separate from the browser vault on this page). " +
                 "Export a backup first if you want to move this vault. Continue?",
             )
           ) {
             e.preventDefault();
           }
         });
-        body.append(freenetLink);
-        body.append(
-          el("p", {
-            class: "hint",
-            text:
-              "Note: browser IndexedDB and Freenet delegate storage are separate until you Import an export into Freenet mode (or the reverse).",
-          }),
-        );
-      } else {
-        body.append(
-          el("p", {
-            class: "hint",
-            text: "Multi-device Sync is available in Freenet mode. Export still works from any backend.",
-          }),
-        );
       }
+      body.append(freenetLink);
+      body.append(
+        el("p", {
+          class: "hint",
+          text:
+            "Identity is your master passphrase → owner key. Not a browser profile, Google, or Microsoft account.",
+        }),
+      );
     },
   );
 

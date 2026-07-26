@@ -38,7 +38,219 @@ header.app-header {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.header-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.badge-mode {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.peer-chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.22rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  cursor: default;
+  user-select: none;
+}
+
+.peer-chip.peer-online {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: color-mix(in srgb, var(--success) 85%, var(--text));
+}
+
+.peer-chip.peer-offline {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  color: var(--text-muted);
+}
+
+.peer-chip.peer-blocked {
+  border-color: color-mix(in srgb, #fbbf24 40%, var(--border));
+  background: color-mix(in srgb, #fbbf24 12%, transparent);
+  color: color-mix(in srgb, #fbbf24 80%, var(--text));
+}
+
+/* Teaching strip: what works for this session */
+.capability-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.55rem;
+  margin-bottom: 1.25rem;
+}
+
+@media (max-width: 720px) {
+  .capability-bar {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cap-card {
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 88%, var(--bg));
+  min-height: 3.5rem;
+}
+
+.cap-card.cap-on {
+  border-color: color-mix(in srgb, var(--success) 28%, var(--border));
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--success) 8%, var(--bg-elevated)),
+    var(--bg-elevated)
+  );
+}
+
+.cap-card.cap-off {
+  opacity: 0.72;
+  border-style: dashed;
+}
+
+.cap-card.cap-warn {
+  border-color: color-mix(in srgb, #fbbf24 35%, var(--border));
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, #fbbf24 10%, var(--bg-elevated)),
+    var(--bg-elevated)
+  );
+}
+
+.cap-title {
+  font-size: 0.8rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  margin-bottom: 0.2rem;
+  color: var(--text);
+}
+
+.cap-blurb {
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.btn-disabled,
+button:disabled.btn-disabled,
+button.btn-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+}
+
+.peer-status-card {
+  padding: 0.85rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  margin-bottom: 0.85rem;
+  background: var(--bg-input);
+}
+
+.peer-status-card.is-online {
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+  background: color-mix(in srgb, var(--success) 7%, var(--bg-input));
+}
+
+.peer-status-card.is-offline {
+  border-color: var(--border);
+}
+
+.peer-status-card.is-blocked {
+  border-color: color-mix(in srgb, #fbbf24 40%, var(--border));
+  background: color-mix(in srgb, #fbbf24 8%, var(--bg-input));
+}
+
+.peer-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.peer-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+
+.peer-dot.on {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent);
+}
+
+.peer-dot.off {
+  background: var(--text-muted);
+}
+
+.peer-dot.warn {
+  background: #fbbf24;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #fbbf24 25%, transparent);
+}
+
+.peer-status-detail {
+  margin: 0 0 0.65rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--border);
+  font-size: 0.82rem;
+  padding: 0.35rem 0.7rem;
+}
+
+.feature-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.75rem;
+  margin-bottom: 0.45rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 50%, transparent);
+}
+
+.feature-row-disabled {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.feature-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.feature-row-text .meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+a.button-link-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: auto;
 }
 
 header.app-header h1 {
