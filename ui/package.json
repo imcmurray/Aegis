@@ -1,0 +1,21 @@
+{
+  "name": "aegis-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test:cbor": "npx tsx src/cbor.spec.ts"
+  },
+  "dependencies": {
+    "@freenetorg/freenet-stdlib": "^0.3.0",
+    "cbor-x": "^1.6.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.0.0"
+  }
+}

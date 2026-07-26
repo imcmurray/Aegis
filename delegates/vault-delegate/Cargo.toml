@@ -1,0 +1,20 @@
+[package]
+name = "aegis-vault-delegate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Aegis vault delegate — private vault crypto and operations"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Enable when building the delegate WASM for Freenet (`--features freenet-main-delegate`).
+freenet-main-delegate = []
+# Optional: freenet-macros injects `cfg(feature = "trace")` for stdlib tracing.
+trace = []
+
+[dependencies]
+aegis-common = { workspace = true, features = ["freenet-host"] }
+freenet-stdlib = { workspace = true, features = ["contract"] }

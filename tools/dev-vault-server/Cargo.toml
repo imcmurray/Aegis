@@ -1,0 +1,19 @@
+[package]
+name = "aegis-dev-vault-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Local HTTP bridge to real Aegis vault crypto (no Freenet peer required)"
+publish = false
+
+[[bin]]
+name = "aegis-dev-vault-server"
+path = "src/main.rs"
+
+[dependencies]
+aegis-common = { workspace = true }
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+tower-http = { version = "0.6", features = ["cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

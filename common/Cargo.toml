@@ -1,0 +1,37 @@
+[package]
+name = "aegis-common"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared types, crypto, and vault logic for Aegis"
+
+[features]
+default = []
+# Freenet contracts/delegates: host RNG + time via freenet-stdlib.
+freenet-host = ["dep:freenet-stdlib", "getrandom/custom"]
+
+[dependencies]
+serde = { workspace = true }
+serde_bytes = { workspace = true }
+ciborium = { workspace = true }
+thiserror = { workspace = true }
+argon2 = { workspace = true }
+chacha20poly1305 = { workspace = true }
+hkdf = { workspace = true }
+sha2 = { workspace = true }
+ed25519-dalek = { workspace = true }
+x25519-dalek = { workspace = true }
+blake3 = { workspace = true }
+zeroize = { workspace = true }
+subtle = { workspace = true }
+hex = { workspace = true }
+bs58 = { workspace = true }
+getrandom = "0.2"
+hmac = "0.12"
+sha1 = "0.10"
+freenet-stdlib = { workspace = true, features = ["contract"], optional = true }
+
+# Browser WASM (no freenet-host): WebCrypto getrandom + js-sys time.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+js-sys = "0.3"

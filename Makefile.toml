@@ -1,0 +1,88 @@
+[config]
+default_to_workspace = false
+
+[tasks.build]
+description = "Build common + wasm contract + wasm delegate"
+dependencies = ["build-common", "build-contract", "build-delegate"]
+
+[tasks.build-common]
+command = "cargo"
+args = ["build", "-p", "aegis-common"]
+
+[tasks.build-contract]
+command = "cargo"
+args = [
+  "build",
+  "--release",
+  "--target",
+  "wasm32-unknown-unknown",
+  "-p",
+  "aegis-vault-sync",
+  "--features",
+  "freenet-main-contract",
+]
+
+[tasks.build-delegate]
+command = "cargo"
+args = [
+  "build",
+  "--release",
+  "--target",
+  "wasm32-unknown-unknown",
+  "-p",
+  "aegis-vault-delegate",
+  "--features",
+  "freenet-main-delegate",
+]
+
+[tasks.test]
+command = "cargo"
+args = ["test", "--workspace"]
+
+[tasks.ui-install]
+cwd = "ui"
+command = "npm"
+args = ["install"]
+
+[tasks.ui-dev]
+cwd = "ui"
+command = "npm"
+args = ["run", "dev"]
+
+[tasks.ui-build]
+cwd = "ui"
+command = "npm"
+args = ["run", "build"]
+
+[tasks.dev-vault]
+description = "Run local Rust vault HTTP server (real crypto)"
+command = "cargo"
+args = ["run", "-p", "aegis-dev-vault-server"]
+
+[tasks.test-cbor]
+description = "Run CBOR golden vector checks (Rust + TS)"
+dependencies = ["test-cbor-rust", "test-cbor-ts"]
+
+[tasks.test-cbor-rust]
+command = "cargo"
+args = ["test", "-p", "aegis-common", "golden_vectors"]
+
+[tasks.test-cbor-ts]
+cwd = "ui"
+command = "npm"
+args = ["run", "test:cbor"]
+
+[tasks.build-wasm]
+description = "Build Freenet WASM + stage into ui/public"
+command = "bash"
+args = ["scripts/build-wasm.sh"]
+
+[tasks.package-release]
+description = "Build WASM + UI release bundle (dist/freenet-release)"
+command = "bash"
+args = ["scripts/package-release.sh"]
+
+[tasks.publish-freenet]
+description = "Publish web container to local Freenet peer"
+command = "bash"
+args = ["scripts/publish-freenet.sh"]

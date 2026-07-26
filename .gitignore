@@ -1,0 +1,27 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Node
+ui/node_modules/
+ui/dist/
+
+# Local release staging (CI rebuilds)
+/dist/
+
+# OS / editor
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
+*.log
+
+# Freenet / local secrets (never commit)
+website-url.txt
+*.toml.bak
+
+# Env
+.env
+.env.*

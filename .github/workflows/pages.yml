@@ -1,0 +1,79 @@
+# Build Aegis UI (browser vault WASM + static site) and deploy to GitHub Pages.
+# Anyone can open the site with no Freenet install (default mode=browser).
+#
+# One-time GitHub setup (repo Settings → Pages):
+#   Source: GitHub Actions
+#
+# After first green run: https://<user>.github.io/<repo>/
+
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-bindgen-cli
+        run: |
+          # Must match wasm-bindgen crate version used by aegis-browser-wasm
+          cargo install wasm-bindgen-cli --version 0.2.126 --locked \
+            || cargo install wasm-bindgen-cli --version 0.2.126
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build WASM + UI release
+        run: |
+          chmod +x scripts/build-wasm.sh scripts/package-release.sh
+          ./scripts/package-release.sh
+
+      - name: Add Pages SPA base note
+        run: |
+          # Relative base (./) already set in vite.config — works for project pages.
+          cp docs/ACCESS.md dist/freenet-release/ui/ACCESS.md 2>/dev/null || true
+          # Simple .nojekyll so GH Pages serves _underscore assets if any
+          touch dist/freenet-release/ui/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/freenet-release/ui
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

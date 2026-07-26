@@ -1,0 +1,24 @@
+[package]
+name = "aegis-vault-sync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Aegis multi-device vault sync contract (encrypted revisions only)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Enable when building the contract WASM for Freenet (`--features freenet-main-contract`).
+freenet-main-contract = []
+# Optional: freenet-macros injects `cfg(feature = "trace")` for stdlib tracing.
+trace = []
+
+[dependencies]
+aegis-common = { workspace = true, features = ["freenet-host"] }
+ciborium = { workspace = true }
+serde = { workspace = true }
+ed25519-dalek = { workspace = true }
+blake3 = { workspace = true }
+freenet-stdlib = { workspace = true, features = ["contract"] }
