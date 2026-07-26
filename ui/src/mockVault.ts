@@ -274,12 +274,12 @@ export class MockVaultClient {
           return { type: "export", blob: [...blob] };
         }
         case "import_encrypted": {
-          if (storageGet(STORAGE_KEY) && !this.doc) {
-            // has vault but locked — still exists
-            return { type: "error", code: "already_exists", message: "vault already exists" };
-          }
-          if (storageGet(STORAGE_KEY) && this.doc) {
-            return { type: "error", code: "already_exists", message: "vault already exists" };
+          if (storageGet(STORAGE_KEY) && !req.replace) {
+            return {
+              type: "error",
+              code: "already_exists",
+              message: "vault already exists (use replace to overwrite)",
+            };
           }
           try {
             const raw = req.blob instanceof Uint8Array ? req.blob : new Uint8Array(req.blob);

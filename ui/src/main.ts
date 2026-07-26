@@ -517,7 +517,7 @@ function renderCreate() {
   importCard.append(
     el("p", {
       class: "hint",
-      text: "Restore an .aegis encrypted export into this empty vault store (good way to move from another PC without Freenet).",
+      text: "Restore an encrypted .aegis export. Best way to move or re-sync browsers without Freenet.",
     }),
   );
   const fileInput = el("input", {
@@ -547,6 +547,7 @@ function renderCreate() {
       op: "import_encrypted",
       blob: buf,
       passphrase: importPw.value,
+      replace: false,
     });
     importBtn.disabled = false;
     if (resp.type === "error") {
@@ -560,6 +561,70 @@ function renderCreate() {
   importCard.append(importBtn);
 
   app.append(card, importCard);
+}
+
+/** Import UI for when a vault already exists (unlock screen / re-sync browsers). */
+function renderReplaceImportCard(): HTMLElement {
+  const importCard = el("div", { class: "card" });
+  importCard.append(el("h2", { text: "Replace vault from backup" }));
+  importCard.append(
+    el("p", {
+      class: "hint",
+      text: "If this browser is out of date, export from the machine that has the newest data, then replace here. This overwrites the local vault in this browser only.",
+    }),
+  );
+  const fileInput = el("input", {
+    type: "file",
+    accept: ".aegis,application/octet-stream",
+  }) as HTMLInputElement;
+  const importPw = el("input", {
+    type: "password",
+    placeholder: "Export passphrase",
+    autocomplete: "off",
+  }) as HTMLInputElement;
+  const importBtn = el("button", {
+    class: "danger",
+    text: "Replace local vault",
+  }) as HTMLButtonElement;
+  importBtn.addEventListener("click", async () => {
+    setError(importCard, null);
+    const file = fileInput.files?.[0];
+    if (!file) {
+      setError(importCard, "Choose a backup file first.");
+      return;
+    }
+    if (!importPw.value) {
+      setError(importCard, "Enter the passphrase used when exporting.");
+      return;
+    }
+    if (
+      !confirm(
+        "Replace this browser’s vault with the backup?\n\n" +
+          "Local entries that are only on this browser will be lost unless they are in the backup.",
+      )
+    ) {
+      return;
+    }
+    importBtn.disabled = true;
+    const buf = new Uint8Array(await file.arrayBuffer());
+    const resp = await client.request({
+      op: "import_encrypted",
+      blob: buf,
+      passphrase: importPw.value,
+      replace: true,
+    });
+    importBtn.disabled = false;
+    if (resp.type === "error") {
+      setError(importCard, resp.message);
+      return;
+    }
+    unlockedViaRecovery = false;
+    await render();
+  });
+  importCard.append(el("label", { text: "Backup file" }), fileInput);
+  importCard.append(el("label", { text: "Passphrase" }), importPw);
+  importCard.append(importBtn);
+  return importCard;
 }
 
 function renderUnlock() {
@@ -631,10 +696,10 @@ function renderUnlock() {
   // No separate “VaultSync unlock” — multi-device is optional after unlock (Settings / Sync).
   const tip = el("p", {
     class: "hint",
-    text: "Tip: after unlock, use Export for another PC, or Settings → Multi-device to opt into Freenet Sync.",
+    text: "Tip: after unlock, use Export for another PC, or Settings → Multi-device to opt into Freenet Sync. If this browser is stale, replace from a backup below.",
   });
 
-  app.append(card, recCard, tip, modeLinks());
+  app.append(card, recCard, renderReplaceImportCard(), tip, modeLinks());
 }
 
 const CONTRACT_STATE_KEY = "aegis.vaultSyncState";

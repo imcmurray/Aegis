@@ -79,7 +79,13 @@ export type VaultRequest =
   | { op: "generate_password"; policy?: GeneratorPolicy }
   | { op: "generate_totp"; secret: string; period?: number; digits?: number }
   | { op: "export_encrypted"; passphrase: string }
-  | { op: "import_encrypted"; blob: number[] | Uint8Array; passphrase: string }
+  | {
+      op: "import_encrypted";
+      blob: number[] | Uint8Array;
+      passphrase: string;
+      /** Wipe existing vault and replace (re-sync another browser). */
+      replace?: boolean;
+    }
   | { op: "get_audit_log"; limit?: number }
   | { op: "sync_now" }
   /** Merge remote VaultSyncState CBOR then sync; returns contract blob to publish. */

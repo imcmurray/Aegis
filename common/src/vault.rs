@@ -727,14 +727,36 @@ fn load_audit(
     ciborium::from_reader(pt.as_slice()).map_err(|e| VaultError::Serde(e.to_string()))
 }
 
-/// Import an export bundle into an empty store.
+/// Clear vault-related secrets (for replace-import). Does not touch unrelated keys.
+pub fn clear_vault_secrets(store: &mut dyn SecretStore) {
+    for key in [
+        SECRET_ENVELOPE,
+        SECRET_VAULT,
+        SECRET_AUDIT,
+        SECRET_SESSION,
+        SECRET_SYNC_COUNTER,
+        SECRET_SYNC_STATE,
+        SECRET_RECOVERY,
+    ] {
+        store.remove(key);
+    }
+}
+
+/// Import an export bundle. If `replace`, overwrites an existing vault after wipe.
 pub fn import_bundle(
     store: &mut dyn SecretStore,
     blob: &[u8],
     passphrase: &str,
+    replace: bool,
 ) -> Result<VaultSession, VaultError> {
     if store.has(SECRET_ENVELOPE) {
-        return Err(VaultError::Msg("vault already exists".into()));
+        if !replace {
+            return Err(VaultError::Msg(
+                "vault already exists (export from the other browser, then import with replace)"
+                    .into(),
+            ));
+        }
+        clear_vault_secrets(store);
     }
     let bundle: ExportBundle =
         ciborium::from_reader(blob).map_err(|e| VaultError::Serde(e.to_string()))?;
@@ -757,7 +779,15 @@ pub fn import_bundle(
         doc,
         audit: Vec::new(),
     };
-    session.audit_push(AuditKind::Import, None, "imported vault");
+    session.audit_push(
+        AuditKind::Import,
+        None,
+        if replace {
+            "imported vault (replaced existing)"
+        } else {
+            "imported vault"
+        },
+    );
     session.persist(store)?;
     session.persist_session_flag(store);
     Ok(session)
@@ -901,16 +931,18 @@ pub fn dispatch_with_sync(
                 Err(e) => VaultResponse::err(e.code(), e.to_string()),
             }
         }
-        VaultRequest::ImportEncrypted { blob, passphrase } => {
-            match import_bundle(store, &blob, &passphrase) {
-                Ok(s) => {
-                    let vault_id = s.doc.meta.vault_id.clone();
-                    *session = Some(s);
-                    VaultResponse::Unlocked { vault_id }
-                }
-                Err(e) => VaultResponse::err(e.code(), e.to_string()),
+        VaultRequest::ImportEncrypted {
+            blob,
+            passphrase,
+            replace,
+        } => match import_bundle(store, &blob, &passphrase, replace) {
+            Ok(s) => {
+                let vault_id = s.doc.meta.vault_id.clone();
+                *session = Some(s);
+                VaultResponse::Unlocked { vault_id }
             }
-        }
+            Err(e) => VaultResponse::err(e.code(), e.to_string()),
+        },
         VaultRequest::Lock => {
             if let Some(s) = session.as_mut() {
                 s.lock(store);
@@ -1248,6 +1280,7 @@ mod tests {
             VaultRequest::ImportEncrypted {
                 blob: export,
                 passphrase: "sync-passphrase".into(),
+                replace: false,
             },
         );
         assert!(matches!(r, VaultResponse::Unlocked { .. }));
@@ -1352,6 +1385,7 @@ mod tests {
             VaultRequest::ImportEncrypted {
                 blob,
                 passphrase: "alpha".into(),
+                replace: false,
             },
         );
         assert!(matches!(r, VaultResponse::Unlocked { .. }));

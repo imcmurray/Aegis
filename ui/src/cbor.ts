@@ -97,7 +97,12 @@ function requestToPlain(req: VaultRequest): Record<string, unknown> {
     case "import_encrypted": {
       const blob =
         req.blob instanceof Uint8Array ? req.blob : new Uint8Array(req.blob);
-      return { op: "import_encrypted", blob, passphrase: req.passphrase };
+      return {
+        op: "import_encrypted",
+        blob,
+        passphrase: req.passphrase,
+        replace: req.replace ?? false,
+      };
     }
     case "get_audit_log":
       return { op: "get_audit_log", limit: req.limit ?? null };
@@ -192,6 +197,7 @@ function plainToRequest(obj: Record<string, unknown>): VaultRequest {
         op: "import_encrypted",
         blob,
         passphrase: String(obj.passphrase ?? ""),
+        replace: Boolean(obj.replace),
       };
     }
     case "get_audit_log":

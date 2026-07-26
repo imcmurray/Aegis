@@ -54,6 +54,9 @@ pub enum VaultRequest {
         #[serde(with = "serde_bytes")]
         blob: Vec<u8>,
         passphrase: String,
+        /// If true, wipe existing vault secrets and replace (re-sync another browser).
+        #[serde(default)]
+        replace: bool,
     },
     GetAuditLog {
         #[serde(default)]
