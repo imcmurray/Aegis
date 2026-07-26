@@ -606,6 +606,93 @@ button:disabled {
   margin-bottom: 0.35rem;
 }
 
+/* Unlock: one card — passphrase primary, recovery/replace collapsed */
+.unlock-card {
+  max-width: 28rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.unlock-mode-hint {
+  margin: 0 0 0.85rem;
+}
+
+.unlock-card > button.primary {
+  width: 100%;
+  margin-bottom: 0.25rem;
+}
+
+.unlock-alts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.unlock-alt {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+
+.unlock-alt[open] {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.unlock-alt > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.unlock-alt > summary::-webkit-details-marker {
+  display: none;
+}
+
+.unlock-alt > summary::before {
+  content: "▸ ";
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.unlock-alt[open] > summary::before {
+  content: "▾ ";
+}
+
+.unlock-alt[open] > summary {
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+.unlock-alt-body {
+  padding: 0.7rem 0.75rem 0.85rem;
+}
+
+.unlock-alt-body .hint {
+  margin: 0 0 0.65rem;
+  font-size: 0.8rem;
+}
+
+.unlock-alt-body button {
+  width: 100%;
+}
+
+.unlock-tip {
+  margin: 0.85rem 0 0;
+  font-size: 0.8rem;
+}
+
+.unlock-card .advanced-modes {
+  margin-top: 0.5rem;
+}
+
 .settings-subhead {
   margin: 0.85rem 0 0.35rem;
   font-size: 0.9rem;

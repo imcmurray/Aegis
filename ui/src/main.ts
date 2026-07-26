@@ -563,14 +563,12 @@ function renderCreate() {
   app.append(card, importCard);
 }
 
-/** Import UI for when a vault already exists (unlock screen / re-sync browsers). */
-function renderReplaceImportCard(): HTMLElement {
-  const importCard = el("div", { class: "card" });
-  importCard.append(el("h2", { text: "Replace vault from backup" }));
-  importCard.append(
+/** Replace-from-backup fields for unlock screen (mounted into a collapsible body). */
+function mountReplaceImportForm(container: HTMLElement) {
+  container.append(
     el("p", {
       class: "hint",
-      text: "If this browser is out of date, export from the machine that has the newest data, then replace here. This overwrites the local vault in this browser only.",
+      text: "Export from the machine with the newest data, then replace here. Overwrites this browser’s vault only.",
     }),
   );
   const fileInput = el("input", {
@@ -587,14 +585,14 @@ function renderReplaceImportCard(): HTMLElement {
     text: "Replace local vault",
   }) as HTMLButtonElement;
   importBtn.addEventListener("click", async () => {
-    setError(importCard, null);
+    setError(container, null);
     const file = fileInput.files?.[0];
     if (!file) {
-      setError(importCard, "Choose a backup file first.");
+      setError(container, "Choose a backup file first.");
       return;
     }
     if (!importPw.value) {
-      setError(importCard, "Enter the passphrase used when exporting.");
+      setError(container, "Enter the passphrase used when exporting.");
       return;
     }
     if (
@@ -615,22 +613,34 @@ function renderReplaceImportCard(): HTMLElement {
     });
     importBtn.disabled = false;
     if (resp.type === "error") {
-      setError(importCard, resp.message);
+      setError(container, resp.message);
       return;
     }
     unlockedViaRecovery = false;
     await render();
   });
-  importCard.append(el("label", { text: "Backup file" }), fileInput);
-  importCard.append(el("label", { text: "Passphrase" }), importPw);
-  importCard.append(importBtn);
-  return importCard;
+  container.append(el("label", { text: "Backup file" }), fileInput);
+  container.append(el("label", { text: "Passphrase" }), importPw);
+  container.append(importBtn);
+}
+
+function unlockAltSection(
+  summary: string,
+  buildBody: (body: HTMLElement) => void,
+): HTMLElement {
+  const details = el("details", { class: "unlock-alt" });
+  details.append(el("summary", { text: summary }));
+  const body = el("div", { class: "unlock-alt-body" });
+  buildBody(body);
+  details.append(body);
+  return details;
 }
 
 function renderUnlock() {
-  const card = el("div", { class: "card" });
+  const card = el("div", { class: "card unlock-card" });
   card.append(el("h2", { text: "Unlock vault" }));
-  card.append(el("p", { class: "hint", text: modeHint() }));
+  card.append(el("p", { class: "hint unlock-mode-hint", text: modeHint() }));
+
   const pw = el("input", {
     type: "password",
     autocomplete: "current-password",
@@ -655,51 +665,69 @@ function renderUnlock() {
   });
   card.append(el("label", { text: "Master passphrase" }), pw, btn);
 
-  // Recovery unlock
-  const recCard = el("div", { class: "card" });
-  recCard.append(el("h2", { text: "Unlock with recovery key" }));
-  recCard.append(
-    el("p", {
-      class: "hint",
-      text: "If you lost your master passphrase but saved a recovery key, paste it here.",
+  // Secondary paths collapsed so the unlock form fits without scrolling.
+  const alts = el("div", { class: "unlock-alts" });
+
+  alts.append(
+    unlockAltSection("Unlock with recovery key", (body) => {
+      body.append(
+        el("p", {
+          class: "hint",
+          text: "If you lost your master passphrase but saved a recovery key, paste it here.",
+        }),
+      );
+      const rec = el("input", {
+        type: "text",
+        placeholder: "AEGIS-XXXX-XXXX-…",
+        autocomplete: "off",
+        spellcheck: "false",
+        class: "mono",
+      }) as HTMLInputElement;
+      const recBtn = el("button", {
+        text: "Unlock with recovery key",
+      }) as HTMLButtonElement;
+      recBtn.addEventListener("click", async () => {
+        setError(body, null);
+        if (!rec.value.trim()) {
+          setError(body, "Enter your recovery key.");
+          return;
+        }
+        recBtn.disabled = true;
+        const resp = await client.request({
+          op: "unlock_with_recovery",
+          recovery_key: rec.value.trim(),
+        });
+        recBtn.disabled = false;
+        if (resp.type === "error") {
+          setError(body, resp.message);
+          return;
+        }
+        unlockedViaRecovery = true;
+        await render();
+      });
+      rec.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") recBtn.click();
+      });
+      body.append(el("label", { text: "Recovery key" }), rec, recBtn);
     }),
   );
-  const rec = el("input", {
-    type: "text",
-    placeholder: "AEGIS-XXXX-XXXX-…",
-    autocomplete: "off",
-    spellcheck: "false",
-    class: "mono",
-  }) as HTMLInputElement;
-  const recBtn = el("button", { text: "Unlock with recovery key" }) as HTMLButtonElement;
-  recBtn.addEventListener("click", async () => {
-    setError(recCard, null);
-    if (!rec.value.trim()) {
-      setError(recCard, "Enter your recovery key.");
-      return;
-    }
-    recBtn.disabled = true;
-    const resp = await client.request({
-      op: "unlock_with_recovery",
-      recovery_key: rec.value.trim(),
-    });
-    recBtn.disabled = false;
-    if (resp.type === "error") {
-      setError(recCard, resp.message);
-      return;
-    }
-    unlockedViaRecovery = true;
-    await render();
-  });
-  recCard.append(el("label", { text: "Recovery key" }), rec, recBtn);
 
-  // No separate “VaultSync unlock” — multi-device is optional after unlock (Settings / Sync).
-  const tip = el("p", {
-    class: "hint",
-    text: "Tip: after unlock, use Export for another PC, or Settings → Multi-device to opt into Freenet Sync. If this browser is stale, replace from a backup below.",
-  });
+  alts.append(
+    unlockAltSection("Replace vault from backup", (body) => {
+      mountReplaceImportForm(body);
+    }),
+  );
 
-  app.append(card, recCard, renderReplaceImportCard(), tip, modeLinks());
+  card.append(alts);
+  card.append(
+    el("p", {
+      class: "hint unlock-tip",
+      text: "After unlock: Export for another PC, or Settings → Multi-device for Freenet Sync.",
+    }),
+  );
+  card.append(modeLinks());
+
+  app.append(card);
 }
 
 const CONTRACT_STATE_KEY = "aegis.vaultSyncState";
