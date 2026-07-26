@@ -392,12 +392,7 @@ function renderCreate() {
       return;
     }
     btn.disabled = true;
-    // Mock: fast test KDF. Browser WASM: Mobile (lighter). Native/Freenet: Interactive.
-    const kdf_profile = modeLabel.includes("mock")
-      ? "test"
-      : modeLabel.includes("browser")
-        ? "mobile"
-        : "interactive";
+    const kdf_profile = defaultKdfProfile();
     const resp = await client.request({
       op: "create_vault",
       passphrase: pw.value,
@@ -1626,7 +1621,7 @@ function showSettingsModal(
         op: "change_passphrase",
         current_passphrase: cur.value,
         new_passphrase: neu.value,
-        kdf_profile: modeLabel.includes("mock") ? "test" : "interactive",
+        kdf_profile: defaultKdfProfile(),
       });
       changeBtn.disabled = false;
       if (r.type === "error") {
@@ -1681,7 +1676,7 @@ function showSettingsModal(
       try {
         const r = await client.request({
           op: "generate_recovery_key",
-          kdf_profile: modeLabel.includes("mock") ? "test" : "interactive",
+          kdf_profile: defaultKdfProfile(),
         });
         if (r.type === "error") {
           window.alert(r.message);
