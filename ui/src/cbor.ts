@@ -104,6 +104,16 @@ function requestToPlain(req: VaultRequest): Record<string, unknown> {
         replace: req.replace ?? false,
       };
     }
+    case "preview_import": {
+      const blob =
+        req.blob instanceof Uint8Array ? req.blob : new Uint8Array(req.blob);
+      return {
+        op: "preview_import",
+        blob,
+        passphrase: req.passphrase,
+        local_passphrase: req.local_passphrase ?? null,
+      };
+    }
     case "get_audit_log":
       return { op: "get_audit_log", limit: req.limit ?? null };
     case "sync_now":
@@ -200,6 +210,22 @@ function plainToRequest(obj: Record<string, unknown>): VaultRequest {
         replace: Boolean(obj.replace),
       };
     }
+    case "preview_import": {
+      const raw = obj.blob;
+      let blob: number[];
+      if (raw instanceof Uint8Array) blob = [...raw];
+      else if (Array.isArray(raw)) blob = raw as number[];
+      else blob = [];
+      return {
+        op: "preview_import",
+        blob,
+        passphrase: String(obj.passphrase ?? ""),
+        local_passphrase:
+          obj.local_passphrase == null || obj.local_passphrase === ""
+            ? null
+            : String(obj.local_passphrase),
+      };
+    }
     case "get_audit_log":
       return { op: "get_audit_log", limit: obj.limit as number | undefined };
     case "sync_now":
@@ -293,6 +319,25 @@ function responseToPlain(resp: VaultResponse): Record<string, unknown> {
       return { type: "health", report: resp.report };
     case "recovery_key":
       return { type: "recovery_key", recovery_key: resp.recovery_key };
+    case "import_preview":
+      return {
+        type: "import_preview",
+        local_available: resp.local_available,
+        same_vault_id: resp.same_vault_id,
+        local_vault_id: resp.local_vault_id,
+        backup_vault_id: resp.backup_vault_id,
+        local_entry_count: resp.local_entry_count,
+        backup_entry_count: resp.backup_entry_count,
+        local_updated_at: resp.local_updated_at,
+        backup_updated_at: resp.backup_updated_at,
+        only_local: resp.only_local ?? [],
+        only_backup: resp.only_backup ?? [],
+        changed: resp.changed ?? [],
+        unchanged_count: resp.unchanged_count,
+        folders_only_local: resp.folders_only_local ?? [],
+        folders_only_backup: resp.folders_only_backup ?? [],
+        note: resp.note ?? "",
+      };
     default: {
       const _exhaustive: never = resp;
       throw new Error(`unknown response: ${JSON.stringify(_exhaustive)}`);
@@ -378,6 +423,26 @@ function plainToResponse(obj: Record<string, unknown>): VaultResponse {
       return {
         type: "recovery_key",
         recovery_key: String(obj.recovery_key ?? ""),
+      };
+    case "import_preview":
+      return {
+        type: "import_preview",
+        local_available: Boolean(obj.local_available),
+        same_vault_id: Boolean(obj.same_vault_id),
+        local_vault_id: (obj.local_vault_id as string | null) ?? null,
+        backup_vault_id: String(obj.backup_vault_id ?? ""),
+        local_entry_count: Number(obj.local_entry_count ?? 0),
+        backup_entry_count: Number(obj.backup_entry_count ?? 0),
+        local_updated_at:
+          obj.local_updated_at == null ? null : Number(obj.local_updated_at),
+        backup_updated_at: Number(obj.backup_updated_at ?? 0),
+        only_local: (obj.only_local as never) ?? [],
+        only_backup: (obj.only_backup as never) ?? [],
+        changed: (obj.changed as never) ?? [],
+        unchanged_count: Number(obj.unchanged_count ?? 0),
+        folders_only_local: (obj.folders_only_local as string[]) ?? [],
+        folders_only_backup: (obj.folders_only_backup as string[]) ?? [],
+        note: String(obj.note ?? ""),
       };
     default:
       throw new Error(`unknown response type: ${type}`);

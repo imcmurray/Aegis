@@ -86,6 +86,142 @@ async function open(passphrase: string, stored: Stored): Promise<VaultDoc> {
   }
 }
 
+function entrySummary(e: Entry): EntrySummary {
+  return {
+    id: e.id,
+    folder_id: e.folder_id,
+    name: e.name,
+    urls: e.urls,
+    username: e.username,
+    tags: e.tags,
+    updated_at: e.updated_at,
+    has_password: !!e.password,
+    has_username: !!e.username,
+    has_totp: !!(e.totp_secret && e.totp_secret.trim()),
+    has_notes: !!(e.notes && e.notes.trim()),
+    has_url: e.urls.some((u) => u.trim()),
+    custom_field_count: e.custom_fields?.length ?? 0,
+    has_history: !!(e.password_history && e.password_history.length),
+  };
+}
+
+function mockChangedFields(a: Entry, b: Entry): string[] {
+  const fields: string[] = [];
+  if (a.name !== b.name) fields.push("name");
+  if (a.username !== b.username) fields.push("username");
+  if (a.password !== b.password) fields.push("password");
+  if (a.notes !== b.notes) fields.push("notes");
+  if (JSON.stringify(a.urls) !== JSON.stringify(b.urls)) fields.push("urls");
+  if (JSON.stringify(a.tags) !== JSON.stringify(b.tags)) fields.push("tags");
+  if (a.folder_id !== b.folder_id) fields.push("folder");
+  if ((a.totp_secret ?? null) !== (b.totp_secret ?? null)) fields.push("totp");
+  if (JSON.stringify(a.custom_fields) !== JSON.stringify(b.custom_fields))
+    fields.push("custom_fields");
+  if (JSON.stringify(a.password_history ?? []) !== JSON.stringify(b.password_history ?? []))
+    fields.push("history");
+  return fields;
+}
+
+function mockImportPreview(
+  local: VaultDoc | null,
+  backup: VaultDoc,
+  note: string,
+): VaultResponse {
+  const only_local: EntrySummary[] = [];
+  const only_backup: EntrySummary[] = [];
+  const changed: {
+    id: string;
+    name: string;
+    local_name: string;
+    backup_name: string;
+    fields: string[];
+    local_updated_at: number;
+    backup_updated_at: number;
+    newer: string;
+  }[] = [];
+  let unchanged_count = 0;
+  const folders_only_local: string[] = [];
+  const folders_only_backup: string[] = [];
+
+  if (local) {
+    for (const [id, le] of Object.entries(local.entries)) {
+      const be = backup.entries[id];
+      if (!be) {
+        only_local.push(entrySummary(le));
+        continue;
+      }
+      const fields = mockChangedFields(le, be);
+      if (!fields.length) {
+        unchanged_count += 1;
+      } else {
+        changed.push({
+          id,
+          name: be.name || le.name,
+          local_name: le.name,
+          backup_name: be.name,
+          fields,
+          local_updated_at: le.updated_at,
+          backup_updated_at: be.updated_at,
+          newer:
+            le.updated_at > be.updated_at
+              ? "local"
+              : le.updated_at < be.updated_at
+                ? "backup"
+                : "same",
+        });
+      }
+    }
+    for (const [id, be] of Object.entries(backup.entries)) {
+      if (!local.entries[id]) only_backup.push(entrySummary(be));
+    }
+    for (const [id, lf] of Object.entries(local.folders ?? {})) {
+      if (!backup.folders?.[id]) folders_only_local.push(lf.name);
+    }
+    for (const [id, bf] of Object.entries(backup.folders ?? {})) {
+      if (!local.folders?.[id]) folders_only_backup.push(bf.name);
+    }
+    return {
+      type: "import_preview",
+      local_available: true,
+      same_vault_id: local.vault_id === backup.vault_id,
+      local_vault_id: local.vault_id,
+      backup_vault_id: backup.vault_id,
+      local_entry_count: Object.keys(local.entries).length,
+      backup_entry_count: Object.keys(backup.entries).length,
+      local_updated_at: null,
+      backup_updated_at: 0,
+      only_local,
+      only_backup,
+      changed,
+      unchanged_count,
+      folders_only_local,
+      folders_only_backup,
+      note,
+    };
+  }
+
+  for (const be of Object.values(backup.entries)) only_backup.push(entrySummary(be));
+  for (const bf of Object.values(backup.folders ?? {})) folders_only_backup.push(bf.name);
+  return {
+    type: "import_preview",
+    local_available: false,
+    same_vault_id: false,
+    local_vault_id: null,
+    backup_vault_id: backup.vault_id,
+    local_entry_count: 0,
+    backup_entry_count: Object.keys(backup.entries).length,
+    local_updated_at: null,
+    backup_updated_at: 0,
+    only_local,
+    only_backup,
+    changed,
+    unchanged_count: 0,
+    folders_only_local,
+    folders_only_backup,
+    note,
+  };
+}
+
 function generatePassword(policy: GeneratorPolicy): string {
   if (policy.memorable) {
     const words = ["alpha", "bravo", "coral", "delta", "ember", "flint", "grove", "harbor"];
@@ -290,6 +426,40 @@ export class MockVaultClient {
             return { type: "unlocked", vault_id: this.doc.vault_id };
           } catch {
             return { type: "error", code: "auth_failed", message: "import failed (wrong passphrase or bad file)" };
+          }
+        }
+        case "preview_import": {
+          try {
+            const raw = req.blob instanceof Uint8Array ? req.blob : new Uint8Array(req.blob);
+            const stored = JSON.parse(new TextDecoder().decode(raw)) as Stored;
+            const backup = await open(req.passphrase, stored);
+            let local: VaultDoc | null = this.doc;
+            let note = "";
+            if (!local) {
+              const rawLocal = storageGet(STORAGE_KEY);
+              if (rawLocal) {
+                try {
+                  const tryPw =
+                    req.local_passphrase && req.local_passphrase.length > 0
+                      ? req.local_passphrase
+                      : req.passphrase;
+                  local = await open(tryPw, JSON.parse(rawLocal) as Stored);
+                } catch {
+                  note =
+                    "Could not open the local vault for comparison. Enter the local master passphrase if it differs from the export passphrase.";
+                  local = null;
+                }
+              } else {
+                note = "No local vault — this is a fresh import.";
+              }
+            }
+            return mockImportPreview(local, backup, note);
+          } catch {
+            return {
+              type: "error",
+              code: "auth_failed",
+              message: "preview failed (wrong passphrase or bad file)",
+            };
           }
         }
         case "get_audit_log":

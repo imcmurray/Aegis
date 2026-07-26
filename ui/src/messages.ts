@@ -86,6 +86,13 @@ export type VaultRequest =
       /** Wipe existing vault and replace (re-sync another browser). */
       replace?: boolean;
     }
+  | {
+      op: "preview_import";
+      blob: number[] | Uint8Array;
+      passphrase: string;
+      /** Local master passphrase if different from export passphrase. */
+      local_passphrase?: string | null;
+    }
   | { op: "get_audit_log"; limit?: number }
   | { op: "sync_now" }
   /** Merge remote VaultSyncState CBOR then sync; returns contract blob to publish. */
@@ -100,6 +107,18 @@ export type VaultRequest =
   | { op: "generate_recovery_key"; kdf_profile?: KdfProfile }
   | { op: "unlock_with_recovery"; recovery_key: string }
   | { op: "revoke_recovery_key" };
+
+/** Entry present on both sides but with differing fields (no secret values). */
+export interface ImportEntryChange {
+  id: string;
+  name: string;
+  local_name: string;
+  backup_name: string;
+  fields: string[];
+  local_updated_at: number;
+  backup_updated_at: number;
+  newer: string;
+}
 
 export type HealthKind =
   | "empty"
@@ -142,6 +161,24 @@ export type VaultResponse =
   | { type: "password"; password: string }
   | { type: "totp"; code: string; seconds_remaining: number; period: number }
   | { type: "export"; blob: Uint8Array | number[] }
+  | {
+      type: "import_preview";
+      local_available: boolean;
+      same_vault_id: boolean;
+      local_vault_id: string | null;
+      backup_vault_id: string;
+      local_entry_count: number;
+      backup_entry_count: number;
+      local_updated_at: number | null;
+      backup_updated_at: number;
+      only_local: EntrySummary[];
+      only_backup: EntrySummary[];
+      changed: ImportEntryChange[];
+      unchanged_count: number;
+      folders_only_local: string[];
+      folders_only_backup: string[];
+      note?: string;
+    }
   | {
       type: "audit";
       events: { ts: number; kind: string; entry_id?: string; detail: string }[];

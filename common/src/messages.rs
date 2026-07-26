@@ -5,6 +5,22 @@ use crate::health::HealthReport;
 use crate::types::{AuditEvent, Entry, EntryId, EntrySummary, Folder, FolderId};
 use serde::{Deserialize, Serialize};
 
+/// One entry that exists on both sides but differs (secret values never included).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImportEntryChange {
+    pub id: EntryId,
+    /// Prefer backup name for display.
+    pub name: String,
+    pub local_name: String,
+    pub backup_name: String,
+    /// Field labels that differ: name, username, password, notes, urls, tags, folder, totp, custom_fields, history.
+    pub fields: Vec<String>,
+    pub local_updated_at: u64,
+    pub backup_updated_at: u64,
+    /// "local" | "backup" | "same" — which side has newer updated_at.
+    pub newer: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum VaultRequest {
@@ -57,6 +73,17 @@ pub enum VaultRequest {
         /// If true, wipe existing vault secrets and replace (re-sync another browser).
         #[serde(default)]
         replace: bool,
+    },
+    /// Decrypt a backup and compare to local without writing (replace dry-run).
+    PreviewImport {
+        #[serde(with = "serde_bytes")]
+        blob: Vec<u8>,
+        /// Passphrase used when the backup was exported.
+        passphrase: String,
+        /// Unlock local vault for comparison when locked.
+        /// When omitted/empty, the export passphrase is tried first.
+        #[serde(default)]
+        local_passphrase: Option<String>,
     },
     GetAuditLog {
         #[serde(default)]
@@ -138,6 +165,30 @@ pub enum VaultResponse {
     Export {
         #[serde(with = "serde_bytes")]
         blob: Vec<u8>,
+    },
+    /// Safe comparison of local vault vs import backup (no secrets).
+    ImportPreview {
+        /// Whether local vault data was available for comparison.
+        local_available: bool,
+        same_vault_id: bool,
+        local_vault_id: Option<String>,
+        backup_vault_id: String,
+        local_entry_count: u32,
+        backup_entry_count: u32,
+        local_updated_at: Option<u64>,
+        backup_updated_at: u64,
+        /// Entries only on this browser (lost if replace proceeds).
+        only_local: Vec<EntrySummary>,
+        /// Entries only in the backup (gained on replace).
+        only_backup: Vec<EntrySummary>,
+        /// Same id, different content (no secret values).
+        changed: Vec<ImportEntryChange>,
+        unchanged_count: u32,
+        folders_only_local: Vec<String>,
+        folders_only_backup: Vec<String>,
+        /// Human hint (e.g. could not open local vault).
+        #[serde(default)]
+        note: String,
     },
     Audit {
         events: Vec<AuditEvent>,

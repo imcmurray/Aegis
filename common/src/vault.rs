@@ -7,9 +7,9 @@ use crate::crypto::{
     MasterEnvelope, SecretKey, SealedBlob,
 };
 use crate::health::analyze_entries;
-use crate::messages::{ErrorCode, VaultRequest, VaultResponse};
+use crate::messages::{ErrorCode, ImportEntryChange, VaultRequest, VaultResponse};
 use crate::types::{
-    new_id, unix_now, AuditEvent, AuditKind, EntryId, EntrySummary, Folder, Tombstone,
+    new_id, unix_now, AuditEvent, AuditKind, Entry, EntryId, EntrySummary, Folder, Tombstone,
     VaultDocument, VaultMeta,
 };
 use serde::{Deserialize, Serialize};
@@ -514,7 +514,8 @@ impl VaultSession {
             | VaultRequest::Unlock { .. }
             | VaultRequest::UnlockWithRecovery { .. }
             | VaultRequest::Status
-            | VaultRequest::ImportEncrypted { .. } => Err(VaultError::Msg(
+            | VaultRequest::ImportEncrypted { .. }
+            | VaultRequest::PreviewImport { .. } => Err(VaultError::Msg(
                 "request must be handled by dispatcher".into(),
             )),
         }
@@ -742,6 +743,232 @@ pub fn clear_vault_secrets(store: &mut dyn SecretStore) {
     }
 }
 
+/// Decrypt an export bundle without writing to the store.
+pub fn open_export_document(blob: &[u8], passphrase: &str) -> Result<VaultDocument, VaultError> {
+    let bundle: ExportBundle =
+        ciborium::from_reader(blob).map_err(|e| VaultError::Serde(e.to_string()))?;
+    let master = unwrap_master(passphrase, &bundle.envelope)?;
+    let keys = derive_keys(&master)?;
+    let pt = open(
+        &keys.vault_dek,
+        bundle.envelope.vault_id.as_bytes(),
+        b"export-vault",
+        &bundle.vault,
+    )?;
+    ciborium::from_reader(pt.as_slice()).map_err(|e| VaultError::Serde(e.to_string()))
+}
+
+/// Open local vault document with passphrase without starting a session or audit.
+pub fn peek_local_document(
+    store: &dyn SecretStore,
+    passphrase: &str,
+) -> Result<VaultDocument, VaultError> {
+    let env_bytes = store
+        .get(SECRET_ENVELOPE)
+        .ok_or_else(|| VaultError::Msg("vault not found".into()))?;
+    let envelope = MasterEnvelope::from_cbor(&env_bytes)?;
+    let master = unwrap_master(passphrase, &envelope)?;
+    let keys = derive_keys(&master)?;
+    let vault_bytes = store
+        .get(SECRET_VAULT)
+        .ok_or_else(|| VaultError::Msg("vault blob not found".into()))?;
+    let sealed = SealedBlob::from_cbor(&vault_bytes)?;
+    let pt = open(
+        &keys.vault_dek,
+        envelope.vault_id.as_bytes(),
+        b"vault",
+        &sealed,
+    )?;
+    ciborium::from_reader(pt.as_slice()).map_err(|e| VaultError::Serde(e.to_string()))
+}
+
+fn entry_changed_fields(local: &Entry, backup: &Entry) -> Vec<String> {
+    let mut fields = Vec::new();
+    if local.name != backup.name {
+        fields.push("name".into());
+    }
+    if local.username != backup.username {
+        fields.push("username".into());
+    }
+    if local.password != backup.password {
+        fields.push("password".into());
+    }
+    if local.notes != backup.notes {
+        fields.push("notes".into());
+    }
+    if local.urls != backup.urls {
+        fields.push("urls".into());
+    }
+    if local.tags != backup.tags {
+        fields.push("tags".into());
+    }
+    if local.folder_id != backup.folder_id {
+        fields.push("folder".into());
+    }
+    if local.totp_secret != backup.totp_secret {
+        fields.push("totp".into());
+    }
+    if local.custom_fields != backup.custom_fields {
+        fields.push("custom_fields".into());
+    }
+    if local.password_history != backup.password_history {
+        fields.push("history".into());
+    }
+    fields
+}
+
+const PREVIEW_LIST_CAP: usize = 80;
+
+/// Compare local vault (optional) to a decrypted backup. Never includes secret values.
+pub fn build_import_preview(
+    local: Option<&VaultDocument>,
+    backup: &VaultDocument,
+    note: impl Into<String>,
+) -> VaultResponse {
+    let note = note.into();
+    let mut only_local = Vec::new();
+    let mut only_backup = Vec::new();
+    let mut changed = Vec::new();
+    let mut unchanged_count = 0u32;
+    let mut folders_only_local = Vec::new();
+    let mut folders_only_backup = Vec::new();
+
+    if let Some(local) = local {
+        for (id, le) in &local.entries {
+            match backup.entries.get(id) {
+                None => {
+                    if only_local.len() < PREVIEW_LIST_CAP {
+                        only_local.push(EntrySummary::from(le));
+                    }
+                }
+                Some(be) => {
+                    let fields = entry_changed_fields(le, be);
+                    if fields.is_empty() {
+                        unchanged_count += 1;
+                    } else if changed.len() < PREVIEW_LIST_CAP {
+                        let newer = match le.updated_at.cmp(&be.updated_at) {
+                            std::cmp::Ordering::Greater => "local",
+                            std::cmp::Ordering::Less => "backup",
+                            std::cmp::Ordering::Equal => "same",
+                        };
+                        changed.push(ImportEntryChange {
+                            id: id.clone(),
+                            name: if be.name.is_empty() {
+                                le.name.clone()
+                            } else {
+                                be.name.clone()
+                            },
+                            local_name: le.name.clone(),
+                            backup_name: be.name.clone(),
+                            fields,
+                            local_updated_at: le.updated_at,
+                            backup_updated_at: be.updated_at,
+                            newer: newer.into(),
+                        });
+                    }
+                }
+            }
+        }
+        for (id, be) in &backup.entries {
+            if !local.entries.contains_key(id) && only_backup.len() < PREVIEW_LIST_CAP {
+                only_backup.push(EntrySummary::from(be));
+            }
+        }
+        for (id, lf) in &local.folders {
+            if !backup.folders.contains_key(id) && folders_only_local.len() < PREVIEW_LIST_CAP {
+                folders_only_local.push(lf.name.clone());
+            }
+        }
+        for (id, bf) in &backup.folders {
+            if !local.folders.contains_key(id) && folders_only_backup.len() < PREVIEW_LIST_CAP {
+                folders_only_backup.push(bf.name.clone());
+            }
+        }
+
+        VaultResponse::ImportPreview {
+            local_available: true,
+            same_vault_id: local.meta.vault_id == backup.meta.vault_id,
+            local_vault_id: Some(local.meta.vault_id.clone()),
+            backup_vault_id: backup.meta.vault_id.clone(),
+            local_entry_count: local.entries.len() as u32,
+            backup_entry_count: backup.entries.len() as u32,
+            local_updated_at: Some(local.meta.updated_at),
+            backup_updated_at: backup.meta.updated_at,
+            only_local,
+            only_backup,
+            changed,
+            unchanged_count,
+            folders_only_local,
+            folders_only_backup,
+            note,
+        }
+    } else {
+        for be in backup.entries.values() {
+            if only_backup.len() < PREVIEW_LIST_CAP {
+                only_backup.push(EntrySummary::from(be));
+            }
+        }
+        for bf in backup.folders.values() {
+            if folders_only_backup.len() < PREVIEW_LIST_CAP {
+                folders_only_backup.push(bf.name.clone());
+            }
+        }
+        VaultResponse::ImportPreview {
+            local_available: false,
+            same_vault_id: false,
+            local_vault_id: None,
+            backup_vault_id: backup.meta.vault_id.clone(),
+            local_entry_count: 0,
+            backup_entry_count: backup.entries.len() as u32,
+            local_updated_at: None,
+            backup_updated_at: backup.meta.updated_at,
+            only_local,
+            only_backup,
+            changed,
+            unchanged_count: 0,
+            folders_only_local,
+            folders_only_backup,
+            note,
+        }
+    }
+}
+
+/// Preview replace/import: open backup + optional local, return safe diff.
+pub fn preview_import(
+    store: &dyn SecretStore,
+    session: Option<&VaultSession>,
+    blob: &[u8],
+    passphrase: &str,
+    local_passphrase: Option<&str>,
+) -> Result<VaultResponse, VaultError> {
+    let backup = open_export_document(blob, passphrase)?;
+    let mut note = String::new();
+
+    let owned_local: Option<VaultDocument> = if session.is_some() {
+        None
+    } else if store.has(SECRET_ENVELOPE) {
+        let try_pw = local_passphrase
+            .filter(|p| !p.is_empty())
+            .unwrap_or(passphrase);
+        match peek_local_document(store, try_pw) {
+            Ok(doc) => Some(doc),
+            Err(e) => {
+                note = format!(
+                    "Could not open the local vault for comparison ({e}). \
+                     Enter the local master passphrase if it differs from the export passphrase."
+                );
+                None
+            }
+        }
+    } else {
+        note = "No local vault — this is a fresh import.".into();
+        None
+    };
+
+    let local_ref = session.map(|s| &s.doc).or(owned_local.as_ref());
+    Ok(build_import_preview(local_ref, &backup, note))
+}
+
 /// Import an export bundle. If `replace`, overwrites an existing vault after wipe.
 pub fn import_bundle(
     store: &mut dyn SecretStore,
@@ -943,6 +1170,17 @@ pub fn dispatch_with_sync(
             }
             Err(e) => VaultResponse::err(e.code(), e.to_string()),
         },
+        VaultRequest::PreviewImport {
+            blob,
+            passphrase,
+            local_passphrase,
+        } => {
+            let local_pw = local_passphrase.as_deref();
+            match preview_import(store, session.as_ref(), &blob, &passphrase, local_pw) {
+                Ok(r) => r,
+                Err(e) => VaultResponse::err(e.code(), e.to_string()),
+            }
+        }
         VaultRequest::Lock => {
             if let Some(s) = session.as_mut() {
                 s.lock(store);
@@ -1342,6 +1580,167 @@ mod tests {
                 assert!(s.has_url, "has_url");
             }
             other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn preview_import_shows_entry_diff() {
+        let mut store = MemoryStore::default();
+        let mut session = None;
+        dispatch(
+            &mut store,
+            &mut session,
+            VaultRequest::CreateVault {
+                passphrase: "preview-pass".into(),
+                kdf_profile: KdfProfile::Test,
+            },
+        );
+        let mut shared = Entry::new("", "Shared");
+        shared.password = "old".into();
+        dispatch(
+            &mut store,
+            &mut session,
+            VaultRequest::UpsertEntry {
+                entry: shared.clone(),
+            },
+        );
+        let mut only_here = Entry::new("", "OnlyLocal");
+        only_here.password = "local".into();
+        dispatch(
+            &mut store,
+            &mut session,
+            VaultRequest::UpsertEntry { entry: only_here },
+        );
+
+        // Export, then change shared password and add another entry before re-export.
+        let export = dispatch(
+            &mut store,
+            &mut session,
+            VaultRequest::ExportEncrypted {
+                passphrase: "preview-pass".into(),
+            },
+        );
+        let blob = match export {
+            VaultResponse::Export { blob } => blob,
+            other => panic!("export: {other:?}"),
+        };
+
+        // Mutate local: change shared password (so local diverges from blob).
+        shared.password = "new-local".into();
+        dispatch(
+            &mut store,
+            &mut session,
+            VaultRequest::UpsertEntry { entry: shared },
+        );
+
+        // Build a second vault as "backup" with different content.
+        let mut store_b = MemoryStore::default();
+        let mut session_b = None;
+        dispatch(
+            &mut store_b,
+            &mut session_b,
+            VaultRequest::ImportEncrypted {
+                blob: blob.clone(),
+                passphrase: "preview-pass".into(),
+                replace: false,
+            },
+        );
+        // Drop OnlyLocal on backup so it appears only on local; add OnlyBackup.
+        let r = dispatch(
+            &mut store_b,
+            &mut session_b,
+            VaultRequest::ListSummaries { query: None },
+        );
+        let (shared_id, only_local_id) = match r {
+            VaultResponse::Summaries { entries } => {
+                let shared = entries
+                    .iter()
+                    .find(|e| e.name == "Shared")
+                    .map(|e| e.id.clone())
+                    .expect("shared");
+                let only_l = entries
+                    .iter()
+                    .find(|e| e.name == "OnlyLocal")
+                    .map(|e| e.id.clone())
+                    .expect("only local");
+                (shared, only_l)
+            }
+            other => panic!("{other:?}"),
+        };
+        dispatch(
+            &mut store_b,
+            &mut session_b,
+            VaultRequest::DeleteEntry {
+                id: only_local_id,
+            },
+        );
+        let mut only_backup = Entry::new("", "OnlyBackup");
+        only_backup.password = "remote".into();
+        dispatch(
+            &mut store_b,
+            &mut session_b,
+            VaultRequest::UpsertEntry {
+                entry: only_backup,
+            },
+        );
+        let mut shared_b = Entry::new(shared_id, "Shared");
+        shared_b.password = "from-backup".into();
+        shared_b.username = "user".into();
+        dispatch(
+            &mut store_b,
+            &mut session_b,
+            VaultRequest::UpsertEntry { entry: shared_b },
+        );
+        let export_b = dispatch(
+            &mut store_b,
+            &mut session_b,
+            VaultRequest::ExportEncrypted {
+                passphrase: "preview-pass".into(),
+            },
+        );
+        let blob_b = match export_b {
+            VaultResponse::Export { blob } => blob,
+            other => panic!("{other:?}"),
+        };
+
+        // Preview against locked store (use passphrase) — lock session first.
+        dispatch(&mut store, &mut session, VaultRequest::Lock);
+        let preview = dispatch(
+            &mut store,
+            &mut session,
+            VaultRequest::PreviewImport {
+                blob: blob_b,
+                passphrase: "preview-pass".into(),
+                local_passphrase: None,
+            },
+        );
+        match preview {
+            VaultResponse::ImportPreview {
+                local_available,
+                only_local,
+                only_backup,
+                changed,
+                ..
+            } => {
+                assert!(local_available);
+                assert!(
+                    only_local.iter().any(|e| e.name == "OnlyLocal"),
+                    "only_local: {only_local:?}"
+                );
+                assert!(
+                    only_backup.iter().any(|e| e.name == "OnlyBackup"),
+                    "only_backup: {only_backup:?}"
+                );
+                assert!(
+                    changed.iter().any(|c| {
+                        c.name == "Shared"
+                            && c.fields.iter().any(|f| f == "password")
+                            && c.fields.iter().any(|f| f == "username")
+                    }),
+                    "changed: {changed:?}"
+                );
+            }
+            other => panic!("expected ImportPreview, got {other:?}"),
         }
     }
 
