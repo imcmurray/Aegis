@@ -281,6 +281,7 @@ function responseToPlain(resp: VaultResponse): Record<string, unknown> {
         detail: resp.detail,
         contract_state: resp.contract_state ?? new Uint8Array(0),
         owner_verifying_key: resp.owner_verifying_key ?? new Uint8Array(0),
+        sync_params: resp.sync_params ?? new Uint8Array(0),
       };
     case "health":
       return { type: "health", report: resp.report };
@@ -363,6 +364,7 @@ function plainToResponse(obj: Record<string, unknown>): VaultResponse {
         detail: String(obj.detail ?? ""),
         contract_state: bytesField(obj.contract_state),
         owner_verifying_key: bytesField(obj.owner_verifying_key),
+        sync_params: bytesField(obj.sync_params),
       };
     case "health":
       return { type: "health", report: obj.report as never };

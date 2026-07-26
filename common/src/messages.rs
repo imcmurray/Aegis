@@ -144,13 +144,16 @@ pub enum VaultResponse {
         action: String,
         remote_revisions: u32,
         detail: String,
-        /// Full VaultSyncState CBOR — UI should Put this on the VaultSync contract.
+        /// Full VaultSyncState CBOR — UI should Put/Update this on VaultSync.
         /// Empty when the transport was file-only (dev) and no publish blob was built.
         #[serde(default, with = "serde_bytes")]
         contract_state: Vec<u8>,
-        /// Ed25519 owner verifying key (32) for VaultSyncParams / contract address.
+        /// Ed25519 owner verifying key (32) — Freenet identity for this vault.
         #[serde(default, with = "serde_bytes")]
         owner_verifying_key: Vec<u8>,
+        /// CBOR [`crate::sync_types::VaultSyncParams`] for contract instance address.
+        #[serde(default, with = "serde_bytes")]
+        sync_params: Vec<u8>,
     },
     Health {
         report: HealthReport,

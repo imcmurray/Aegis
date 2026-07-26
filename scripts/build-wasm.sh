@@ -31,10 +31,13 @@ else
   echo "  cargo install wasm-bindgen-cli --version 0.2.100" >&2
 fi
 
-# Write blake3 + base58 of delegate WASM for Freenet registration helpers.
+# Write blake3 + base58 of WASM for Freenet registration / VaultSync instance ids.
 cargo run -q -p aegis-wasm-hash -- \
   "$UI_PUBLIC/aegis_vault_delegate.wasm" \
   > "$UI_PUBLIC/aegis_vault_delegate.hash.json"
+cargo run -q -p aegis-wasm-hash -- \
+  "$UI_PUBLIC/aegis_vault_sync.wasm" \
+  > "$UI_PUBLIC/aegis_vault_sync.hash.json"
 
 echo "==> Staged:"
 ls -la "$UI_PUBLIC"/*.wasm "$UI_PUBLIC"/*.hash.json 2>/dev/null || true

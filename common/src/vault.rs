@@ -660,10 +660,16 @@ impl VaultSession {
             crate::sync::SyncAction::UpToDate => "up_to_date",
             crate::sync::SyncAction::Merged => "merged",
         };
-        let owner_verifying_key = if include_owner_vk {
-            crate::sync::owner_vk_bytes(&self.keys)
+        let (owner_verifying_key, sync_params) = if include_owner_vk {
+            let vk = crate::sync::owner_vk_bytes(&self.keys);
+            let params = crate::sync_types::VaultSyncParams {
+                owner_verifying_key: vk.clone(),
+                app: "AEGIS_VAULT_SYNC_V1".into(),
+            };
+            let params_cbor = crate::sync_types::encode_cbor(&params).unwrap_or_default();
+            (vk, params_cbor)
         } else {
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
         Ok(VaultResponse::Synced {
             action: action.into(),
@@ -671,6 +677,7 @@ impl VaultSession {
             detail: report.detail,
             contract_state,
             owner_verifying_key,
+            sync_params,
         })
     }
 

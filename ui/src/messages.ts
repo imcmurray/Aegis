@@ -147,8 +147,10 @@ export type VaultResponse =
       detail: string;
       /** VaultSyncState CBOR for contract Put (may be empty). */
       contract_state?: number[] | Uint8Array;
-      /** Owner Ed25519 verifying key (32) for VaultSyncParams. */
+      /** Owner Ed25519 verifying key (32) — Freenet identity for this vault. */
       owner_verifying_key?: number[] | Uint8Array;
+      /** CBOR VaultSyncParams for contract instance address. */
+      sync_params?: number[] | Uint8Array;
     }
   | { type: "health"; report: HealthReport }
   | { type: "recovery_key"; recovery_key: string }

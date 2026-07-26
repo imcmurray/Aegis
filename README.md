@@ -79,6 +79,7 @@ cargo test --workspace
 | [docs/CRYPTO.md](docs/CRYPTO.md) | Algorithms |
 | [docs/FREENET.md](docs/FREENET.md) | Peer + delegate |
 | [docs/PUBLISH.md](docs/PUBLISH.md) | Freenet web container publish |
+| [docs/VAULTSYNC.md](docs/VAULTSYNC.md) | **Multi-device mesh Sync (owner key identity)** |
 | [docs/DEV.md](docs/DEV.md) | Local development |
 
 ## Layout

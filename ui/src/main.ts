@@ -13,7 +13,7 @@ import {
   type GeneratorPolicy,
   type HealthReport,
 } from "./messages";
-import { storageGet, storageSet } from "./storage";
+import { storageSet } from "./storage";
 import { generateTotp } from "./totp";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -539,20 +539,6 @@ function toBytes(raw: number[] | Uint8Array | undefined | null): Uint8Array {
   return new Uint8Array(raw);
 }
 
-/** Last VaultSync MVR from SyncWithRemote (bridge until contract Put is live). */
-function loadCachedContractState(): Uint8Array {
-  try {
-    const b64 = storageGet(CONTRACT_STATE_KEY);
-    if (!b64) return new Uint8Array(0);
-    const bin = atob(b64);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out;
-  } catch {
-    return new Uint8Array(0);
-  }
-}
-
 function cacheContractState(state: Uint8Array, ownerVk: Uint8Array) {
   try {
     let s = "";
@@ -732,42 +718,49 @@ async function renderVault() {
   syncBtn.addEventListener("click", async () => {
     syncBtn.disabled = true;
     statusLine.textContent = "Syncing…";
-    // Freenet path: feed last contract blob (if any) into SyncWithRemote so
-    // multi-device MVR can converge; store returned blob for publish / other devices.
-    const useRemote =
-      client.label.includes("freenet") ||
-      new URLSearchParams(location.search).get("mode") === "freenet";
-    let resp;
-    if (useRemote) {
-      const cached = loadCachedContractState();
-      resp = await client.request({
-        op: "sync_with_remote",
-        remote_state: cached,
-      });
-    } else {
-      resp = await client.request({ op: "sync_now" });
-    }
-    syncBtn.disabled = false;
-    if (resp.type === "error") {
-      statusLine.textContent = `Sync: ${resp.message}`;
-      return;
-    }
-    if (resp.type === "synced") {
-      const blob = toBytes(resp.contract_state);
-      const vk = toBytes(resp.owner_verifying_key);
-      if (blob.length > 0) {
-        cacheContractState(blob, vk);
+    try {
+      // Freenet mesh: Get remote VaultSync → merge → Put/Update (owner-key identity).
+      if (client.freenetApi) {
+        const { freenetVaultSyncRoundTrip } = await import("./vaultSync");
+        const summary = await freenetVaultSyncRoundTrip(
+          client.freenetApi,
+          async (remoteState) => {
+            const r = await client.request({
+              op: "sync_with_remote",
+              remote_state: remoteState,
+            });
+            if (r.type === "synced") {
+              const blob = toBytes(r.contract_state);
+              const vk = toBytes(r.owner_verifying_key);
+              if (blob.length > 0) cacheContractState(blob, vk);
+            }
+            return r;
+          },
+        );
+        statusLine.textContent = `Sync: ${summary}`;
+        await refreshList();
+        await refreshFolders();
+        return;
       }
-      const netNote =
-        blob.length > 0
-          ? " · contract blob ready (see docs/PUBLISH.md)"
-          : "";
-      statusLine.textContent = `Sync: ${resp.action} — ${resp.detail} (${resp.remote_revisions} rev)${netNote}`;
-      await refreshList();
-      await refreshFolders();
-      return;
+
+      // Browser / dev: local MVR only (file or secret-store / IndexedDB path).
+      const resp = await client.request({ op: "sync_now" });
+      if (resp.type === "error") {
+        statusLine.textContent = `Sync: ${resp.message}`;
+        return;
+      }
+      if (resp.type === "synced") {
+        statusLine.textContent = `Sync: ${resp.action} — ${resp.detail} (${resp.remote_revisions} rev)`;
+        await refreshList();
+        await refreshFolders();
+        return;
+      }
+      statusLine.textContent = "Sync finished.";
+    } catch (e) {
+      statusLine.textContent = `Sync: ${e instanceof Error ? e.message : String(e)}`;
+    } finally {
+      syncBtn.disabled = false;
     }
-    statusLine.textContent = "Sync finished.";
   });
 
   healthBtn.addEventListener("click", async () => {

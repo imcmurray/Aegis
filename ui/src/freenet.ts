@@ -17,9 +17,18 @@ import { decodeResponse, encodeRequest } from "./cbor";
 import type { VaultRequest, VaultResponse } from "./messages";
 import { isEphemeralStorage, storageGet, storageSet } from "./storage";
 
+/** Contract Put/Get/Update surface (Freenet mesh only). */
+export type FreenetMeshApi = {
+  put: (req: unknown) => Promise<unknown>;
+  get: (req: unknown) => Promise<{ state?: number[] | Uint8Array }>;
+  update: (req: unknown) => Promise<unknown>;
+};
+
 export type VaultClient = {
   request(req: VaultRequest): Promise<VaultResponse>;
   readonly label: string;
+  /** Present when connected to a Freenet peer (for VaultSync). */
+  readonly freenetApi?: FreenetMeshApi;
 };
 
 export type ClientMode = "browser" | "mock" | "dev" | "freenet";
@@ -60,8 +69,15 @@ type Pending = {
   timer: ReturnType<typeof setTimeout>;
 };
 
+type FreenetWsApiLike = {
+  sendRequest?: (req: unknown) => void;
+  put?: (req: unknown) => Promise<unknown>;
+  get?: (req: unknown) => Promise<{ state?: number[] | Uint8Array }>;
+  update?: (req: unknown) => Promise<unknown>;
+};
+
 type ApiHandle = {
-  api: { sendRequest?: (req: unknown) => void };
+  api: FreenetWsApiLike;
   pending: Pending[];
   alive: boolean;
 };
@@ -171,7 +187,7 @@ export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
 
         // Fresh URL every time — stdlib appends encodingProtocol to the object.
         const api = new FreenetWsApi(new URL(wsUrlString), handler as never, "");
-        handle.api = api as unknown as { sendRequest?: (req: unknown) => void };
+        handle.api = api as unknown as FreenetWsApiLike;
       });
 
     let handle = await connect().catch((e) => {
@@ -233,8 +249,24 @@ export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
     let chain: Promise<unknown> = Promise.resolve();
     let current = handle;
 
+    const meshApi: FreenetMeshApi = {
+      put: (req) => {
+        if (!current.api.put) return Promise.reject(new Error("put missing"));
+        return current.api.put(req);
+      },
+      get: (req) => {
+        if (!current.api.get) return Promise.reject(new Error("get missing"));
+        return current.api.get(req);
+      },
+      update: (req) => {
+        if (!current.api.update) return Promise.reject(new Error("update missing"));
+        return current.api.update(req);
+      },
+    };
+
     const client: VaultClient = {
       label: keys ? "freenet delegate" : "freenet (no keys)",
+      freenetApi: meshApi,
       request(req: VaultRequest): Promise<VaultResponse> {
         if (!keys) {
           return Promise.resolve({
