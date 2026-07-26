@@ -738,8 +738,8 @@ function entryFeaturePills(
 
 async function renderVault() {
   let folders: Folder[] = [];
-  /** null = all, "" = uncategorized, id = folder */
-  let folderFilter: string | null = null;
+  /** Preferred folder id when creating a new entry (last expanded named folder). */
+  let preferredFolderId: string | null = null;
   /** null = all labels; otherwise exact tag (case-insensitive) */
   let tagFilter: string | null = null;
   let allSummaries: EntrySummary[] = [];
@@ -875,7 +875,6 @@ async function renderVault() {
         );
         statusLine.textContent = `Sync: ${summary}`;
         await refreshList();
-        await refreshFolders();
         return;
       }
 
@@ -891,7 +890,6 @@ async function renderVault() {
           : "";
         statusLine.textContent = `Sync: ${resp.action} — ${resp.detail} (${resp.remote_revisions} rev)${extra}`;
         await refreshList();
-        await refreshFolders();
         return;
       }
       statusLine.textContent = "Sync finished.";
@@ -929,23 +927,42 @@ async function renderVault() {
     });
   });
 
+  search.placeholder = "Search name, user, URL, labels…";
   toolbar.append(search, newBtn, syncBtn, exportBtn, healthBtn, settingsBtn, auditBtn, lockBtn);
   app.append(toolbar);
   app.append(statusLine);
 
-  // Layout: folders | entries | detail
-  const layout = el("div", { class: "vault-layout" });
-  const folderCard = el("div", { class: "card folder-panel" });
-  folderCard.append(el("h2", { text: "Folders" }));
-  const folderList = el("ul", { class: "folder-list" });
-  const addFolderBtn = el("button", {
-    text: "+ Folder",
-    style: "width:100%;margin-top:0.5rem",
-  }) as HTMLButtonElement;
-  folderCard.append(folderList, addFolderBtn);
+  // Layout: combined folder tree + detail
+  const layout = el("div", { class: "vault-layout vault-layout-tree" });
 
-  const listCard = el("div", { class: "card" });
-  listCard.append(el("h2", { text: "Entries" }));
+  /** Folder keys that are expanded. "" = uncategorized. Auto-opens on search. */
+  const expandedFolders = new Set<string>([""]);
+  let userCollapsedWhileSearch = false;
+
+  const treeCard = el("div", { class: "card tree-panel" });
+  const treeHead = el("div", { class: "tree-head" });
+  treeHead.append(el("h2", { text: "Vault" }));
+  const treeHeadActions = el("div", { class: "tree-head-actions" });
+  const expandAllBtn = el("button", {
+    type: "button",
+    class: "btn-ghost btn-tiny",
+    text: "Expand",
+    title: "Expand all folders",
+  }) as HTMLButtonElement;
+  const collapseAllBtn = el("button", {
+    type: "button",
+    class: "btn-ghost btn-tiny",
+    text: "Collapse",
+    title: "Collapse all folders",
+  }) as HTMLButtonElement;
+  const addFolderBtn = el("button", {
+    type: "button",
+    class: "btn-ghost btn-tiny",
+    text: "+ Folder",
+  }) as HTMLButtonElement;
+  treeHeadActions.append(expandAllBtn, collapseAllBtn, addFolderBtn);
+  treeHead.append(treeHeadActions);
+
   const tagFilterRow = el("div", { class: "tag-filter-row" });
   const tagFilterSelect = el("select", {
     class: "tag-filter-select",
@@ -954,14 +971,21 @@ async function renderVault() {
   tagFilterSelect.append(new Option("All labels", ""));
   tagFilterSelect.addEventListener("change", () => {
     tagFilter = tagFilterSelect.value || null;
-    void refreshList();
+    void refreshTree();
   });
   tagFilterRow.append(
     el("label", { class: "tag-filter-label", text: "Label" }),
     tagFilterSelect,
   );
-  const list = el("ul", { class: "entry-list" });
-  listCard.append(tagFilterRow, list);
+
+  const treeRoot = el("div", {
+    class: "vault-tree",
+    role: "tree",
+    "aria-label": "Folders and entries",
+  });
+  const treeScroll = el("div", { class: "tree-scroll" });
+  treeScroll.append(treeRoot);
+  treeCard.append(treeHead, tagFilterRow, treeScroll);
 
   function rebuildTagFilterOptions() {
     const tags = collectTags(allSummaries);
@@ -981,7 +1005,6 @@ async function renderVault() {
       tagFilterSelect.value = match;
       tagFilter = match;
     } else {
-      // Keep active filter even if search/folder view has zero hits for it
       tagFilterSelect.append(new Option(`${prev} (0)`, prev));
       tagFilterSelect.value = prev;
       tagFilter = prev;
@@ -991,13 +1014,10 @@ async function renderVault() {
   function setTagFilter(tag: string | null) {
     tagFilter = tag;
     if (tag) {
-      // Ensure option exists so select can show it
       const exists = [...tagFilterSelect.options].some(
         (o) => o.value.toLowerCase() === tag.toLowerCase(),
       );
-      if (!exists) {
-        tagFilterSelect.append(new Option(tag, tag));
-      }
+      if (!exists) tagFilterSelect.append(new Option(tag, tag));
       const opt = [...tagFilterSelect.options].find(
         (o) => o.value.toLowerCase() === tag.toLowerCase(),
       );
@@ -1005,7 +1025,7 @@ async function renderVault() {
     } else {
       tagFilterSelect.value = "";
     }
-    void refreshList();
+    void refreshTree();
   }
 
   const detailCard = el("div", { class: "card detail-card" });
@@ -1014,54 +1034,313 @@ async function renderVault() {
   const detailActions = el("div", { class: "detail-actions" });
   detailCard.append(detailBody, detailActions);
 
-  layout.append(folderCard, listCard, detailCard);
+  layout.append(treeCard, detailCard);
   app.append(layout);
 
-  async function refreshFolders() {
-    const resp = await client.request({ op: "list_folders" });
-    folders = resp.type === "folders" ? resp.folders : [];
-    folderList.innerHTML = "";
+  function isSearching(): boolean {
+    return Boolean(search.value.trim() || tagFilter);
+  }
 
-    const makeItem = (label: string, key: string | null, count?: number) => {
-      const li = el("li", {
-        class: folderFilter === key ? "active" : "",
-      });
-      li.append(
-        el("span", {
-          text: count !== undefined ? `${label} (${count})` : label,
-        }),
-      );
-      li.addEventListener("click", () => {
-        folderFilter = key;
-        void refreshFolders();
-        void refreshList();
-      });
-      return li;
-    };
+  function entryMatchesFilters(e: EntrySummary, serverAlreadyFiltered: boolean): boolean {
+    if (tagFilter && !tagMatches(e.tags, tagFilter)) return false;
+    if (serverAlreadyFiltered) return true;
+    // Client-side safety for name/user/url already filtered by server query
+    return true;
+  }
 
-    const uncategorized = allSummaries.filter((e) => !e.folder_id).length;
-    folderList.append(makeItem("All", null, allSummaries.length));
-    folderList.append(makeItem("No folder", "", uncategorized));
-    for (const f of folders) {
-      const n = allSummaries.filter((e) => e.folder_id === f.id).length;
-      const li = makeItem(f.name, f.id, n);
+  function buildEntryRow(e: EntrySummary): HTMLElement {
+    const item = el("div", {
+      class: "entry-row tree-entry",
+      role: "treeitem",
+      tabindex: "0",
+    });
+    const metaParts = [
+      e.username?.trim() || "",
+      !e.username?.trim() && e.urls?.[0] ? e.urls[0] : "",
+    ].filter(Boolean);
+
+    const body = el("div", { class: "entry-row-body" });
+    body.append(el("div", { class: "entry-name", text: e.name }));
+    if (metaParts.length > 0) {
+      body.append(el("div", { class: "entry-meta", text: metaParts.join(" · ") }));
+    }
+
+    const features = entryFeaturePills(e);
+    const tags = (e.tags ?? []).filter((t) => t.trim());
+    if (features.length > 0 || tags.length > 0) {
+      const accessories = el("div", { class: "entry-accessories" });
+      if (features.length > 0) {
+        const featureRow = el("div", {
+          class: "feature-chips",
+          role: "list",
+          "aria-label": "Entry contents",
+        });
+        for (const f of features) {
+          featureRow.append(
+            el("span", {
+              class: `feature-chip feature-${f.key}`,
+              text: f.label,
+              title: f.title,
+              role: "listitem",
+            }),
+          );
+        }
+        accessories.append(featureRow);
+      }
+      if (tags.length > 0) {
+        const labelRow = el("div", {
+          class: "label-chips",
+          role: "list",
+          "aria-label": "Labels",
+        });
+        for (const t of tags) {
+          const active =
+            tagFilter !== null && t.toLowerCase() === tagFilter.toLowerCase();
+          const pill = el("button", {
+            type: "button",
+            class: active ? "label-chip active" : "label-chip",
+            text: t,
+            title: active ? `Clear filter “${t}”` : `Filter by “${t}”`,
+            role: "listitem",
+          }) as HTMLButtonElement;
+          pill.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (active) setTagFilter(null);
+            else setTagFilter(t);
+          });
+          labelRow.append(pill);
+        }
+        accessories.append(labelRow);
+      }
+      body.append(accessories);
+    }
+
+    item.append(body);
+    item.addEventListener("click", () => void showEntry(e));
+    item.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        void showEntry(e);
+      }
+    });
+    return item;
+  }
+
+  function buildFolderGroup(
+    key: string,
+    title: string,
+    entries: EntrySummary[],
+    opts?: { canDelete?: boolean; folderId?: string },
+  ): HTMLElement | null {
+    if (isSearching() && entries.length === 0) return null;
+
+    const open =
+      isSearching() && !userCollapsedWhileSearch
+        ? entries.length > 0
+        : expandedFolders.has(key);
+
+    const group = el("div", {
+      class: open ? "tree-folder open" : "tree-folder",
+      role: "group",
+    });
+    const header = el("div", {
+      class: "tree-folder-header",
+      role: "treeitem",
+      "aria-expanded": open ? "true" : "false",
+      tabindex: "0",
+    });
+    const chev = el("span", {
+      class: "tree-chevron",
+      text: open ? "▾" : "▸",
+      "aria-hidden": "true",
+    });
+    const icon = el("span", {
+      class: "tree-folder-icon",
+      text: "▸",
+      "aria-hidden": "true",
+    });
+    // Use a folder glyph via CSS; keep text minimal
+    icon.textContent = "";
+    const nameEl = el("span", { class: "tree-folder-name", text: title });
+    const countEl = el("span", {
+      class: "tree-folder-count",
+      text: String(entries.length),
+    });
+    header.append(chev, icon, nameEl, countEl);
+
+    if (opts?.canDelete && opts.folderId) {
       const del = el("button", {
-        class: "danger folder-del",
+        type: "button",
+        class: "tree-folder-del",
         text: "×",
         title: "Delete folder",
       }) as HTMLButtonElement;
       del.addEventListener("click", async (ev) => {
         ev.stopPropagation();
-        if (!confirm(`Delete folder “${f.name}”? Entries become uncategorized.`)) return;
-        await client.request({ op: "delete_folder", id: f.id });
-        if (folderFilter === f.id) folderFilter = null;
-        await refreshFolders();
-        await refreshList();
+        if (
+          !confirm(
+            `Delete folder “${title}”? Entries become uncategorized.`,
+          )
+        ) {
+          return;
+        }
+        await client.request({ op: "delete_folder", id: opts.folderId! });
+        expandedFolders.delete(opts.folderId!);
+        await refreshTree();
       });
-      li.append(del);
-      folderList.append(li);
+      header.append(del);
+    }
+
+    const toggle = () => {
+      if (isSearching()) userCollapsedWhileSearch = true;
+      if (expandedFolders.has(key)) expandedFolders.delete(key);
+      else {
+        expandedFolders.add(key);
+        if (key) preferredFolderId = key;
+      }
+      void refreshTree();
+    };
+    header.addEventListener("click", (ev) => {
+      if ((ev.target as HTMLElement).closest(".tree-folder-del")) return;
+      toggle();
+    });
+    header.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        toggle();
+      }
+    });
+
+    group.append(header);
+
+    if (open) {
+      const children = el("div", {
+        class: "tree-folder-children",
+        role: "group",
+      });
+      if (entries.length === 0) {
+        children.append(
+          el("div", {
+            class: "tree-empty",
+            text: isSearching() ? "No matches" : "No entries in this folder",
+          }),
+        );
+      } else {
+        for (const e of entries) {
+          children.append(buildEntryRow(e));
+        }
+      }
+      group.append(children);
+    }
+
+    return group;
+  }
+
+  async function refreshFolders() {
+    const resp = await client.request({ op: "list_folders" });
+    folders = resp.type === "folders" ? resp.folders : [];
+  }
+
+  async function refreshTree() {
+    await refreshFolders();
+    const query = search.value.trim() || null;
+    const resp = await client.request({
+      op: "list_summaries",
+      query,
+    });
+    treeRoot.innerHTML = "";
+    if (resp.type !== "summaries") {
+      const msg = resp.type === "error" ? resp.message : "Failed to load";
+      treeRoot.append(el("div", { class: "tree-empty", text: msg }));
+      return;
+    }
+    allSummaries = resp.entries;
+    rebuildTagFilterOptions();
+
+    let entries = resp.entries.filter((e) => entryMatchesFilters(e, true));
+    if (tagFilter) {
+      entries = entries.filter((e) => tagMatches(e.tags, tagFilter!));
+    }
+
+    // Auto-expand folders that have matches when searching
+    if (isSearching() && !userCollapsedWhileSearch) {
+      expandedFolders.clear();
+      for (const e of entries) {
+        expandedFolders.add(e.folder_id ?? "");
+      }
+    }
+
+    const byFolder = new Map<string, EntrySummary[]>();
+    byFolder.set("", []);
+    for (const f of folders) byFolder.set(f.id, []);
+    for (const e of entries) {
+      const key = e.folder_id && byFolder.has(e.folder_id) ? e.folder_id : "";
+      byFolder.get(key)!.push(e);
+    }
+
+    // Result summary when filtering
+    if (isSearching()) {
+      treeRoot.append(
+        el("div", {
+          class: "tree-result-banner",
+          text:
+            entries.length === 0
+              ? "No matching entries"
+              : `${entries.length} match${entries.length === 1 ? "" : "es"}`,
+        }),
+      );
+    }
+
+    // Named folders (sorted by name)
+    const sortedFolders = [...folders].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    );
+    for (const f of sortedFolders) {
+      const groupEntries = byFolder.get(f.id) ?? [];
+      // When not searching, still show empty folders
+      if (!isSearching() || groupEntries.length > 0) {
+        const g = buildFolderGroup(f.id, f.name, groupEntries, {
+          canDelete: true,
+          folderId: f.id,
+        });
+        if (g) treeRoot.append(g);
+      }
+    }
+
+    // Uncategorized
+    const loose = byFolder.get("") ?? [];
+    if (!isSearching() || loose.length > 0) {
+      const g = buildFolderGroup("", "Uncategorized", loose);
+      if (g) treeRoot.append(g);
+    }
+
+    if (!isSearching() && entries.length === 0 && folders.length === 0) {
+      treeRoot.append(
+        el("div", {
+          class: "tree-empty tree-empty-hero",
+          text: "No entries yet — create one with New entry",
+        }),
+      );
     }
   }
+
+  // Aliases used by rest of renderVault (sync, editor save, etc.)
+  async function refreshList() {
+    await refreshTree();
+  }
+
+  expandAllBtn.addEventListener("click", () => {
+    userCollapsedWhileSearch = false;
+    expandedFolders.add("");
+    for (const f of folders) expandedFolders.add(f.id);
+    void refreshTree();
+  });
+  collapseAllBtn.addEventListener("click", () => {
+    if (isSearching()) userCollapsedWhileSearch = true;
+    expandedFolders.clear();
+    void refreshTree();
+  });
 
   addFolderBtn.addEventListener("click", async () => {
     const name = window.prompt("Folder name");
@@ -1072,128 +1351,15 @@ async function renderVault() {
       window.alert(r.message);
       return;
     }
-    await refreshFolders();
+    if (folder.id) expandedFolders.add(folder.id);
+    // upsert may assign id in response — re-list
+    await refreshTree();
   });
 
-  async function refreshList() {
-    const query = search.value || null;
-    const resp = await client.request({
-      op: "list_summaries",
-      query,
-    });
-    list.innerHTML = "";
-    if (resp.type !== "summaries") {
-      const msg = resp.type === "error" ? resp.message : "Failed to load";
-      list.append(el("li", { text: msg }));
-      return;
-    }
-    allSummaries = resp.entries;
-    rebuildTagFilterOptions();
-
-    // Re-paint folder counts without infinite loop
-    let entries = resp.entries;
-    if (folderFilter === "") {
-      entries = entries.filter((e) => !e.folder_id);
-    } else if (folderFilter) {
-      entries = entries.filter((e) => e.folder_id === folderFilter);
-    }
-    if (tagFilter) {
-      entries = entries.filter((e) => tagMatches(e.tags, tagFilter!));
-    }
-
-    // Update folder list labels if already built
-    void refreshFolders();
-
-    if (entries.length === 0) {
-      list.append(
-        el("li", {
-          text: tagFilter
-            ? `No entries with label “${tagFilter}”`
-            : "No entries yet",
-        }),
-      );
-      return;
-    }
-    for (const e of entries) {
-      const item = el("li", { class: "entry-row" });
-      const folderName = e.folder_id
-        ? folders.find((f) => f.id === e.folder_id)?.name
-        : null;
-      const metaParts = [
-        e.username?.trim() || "",
-        !e.username?.trim() && e.urls?.[0] ? e.urls[0] : "",
-        folderName ? folderName : "",
-      ].filter(Boolean);
-
-      const body = el("div", { class: "entry-row-body" });
-      body.append(el("div", { class: "entry-name", text: e.name }));
-
-      if (metaParts.length > 0) {
-        body.append(
-          el("div", { class: "entry-meta", text: metaParts.join(" · ") }),
-        );
-      }
-
-      // Features + labels share one accessory row when both present
-      const features = entryFeaturePills(e);
-      const tags = (e.tags ?? []).filter((t) => t.trim());
-      if (features.length > 0 || tags.length > 0) {
-        const accessories = el("div", { class: "entry-accessories" });
-
-        if (features.length > 0) {
-          const featureRow = el("div", {
-            class: "feature-chips",
-            role: "list",
-            "aria-label": "Entry contents",
-          });
-          for (const f of features) {
-            featureRow.append(
-              el("span", {
-                class: `feature-chip feature-${f.key}`,
-                text: f.label,
-                title: f.title,
-                role: "listitem",
-              }),
-            );
-          }
-          accessories.append(featureRow);
-        }
-
-        if (tags.length > 0) {
-          const labelRow = el("div", {
-            class: "label-chips",
-            role: "list",
-            "aria-label": "Labels",
-          });
-          for (const t of tags) {
-            const active =
-              tagFilter !== null && t.toLowerCase() === tagFilter.toLowerCase();
-            const pill = el("button", {
-              type: "button",
-              class: active ? "label-chip active" : "label-chip",
-              text: t,
-              title: active ? `Clear filter “${t}”` : `Filter by “${t}”`,
-              role: "listitem",
-            }) as HTMLButtonElement;
-            pill.addEventListener("click", (ev) => {
-              ev.preventDefault();
-              ev.stopPropagation();
-              if (active) setTagFilter(null);
-              else setTagFilter(t);
-            });
-            labelRow.append(pill);
-          }
-          accessories.append(labelRow);
-        }
-
-        body.append(accessories);
-      }
-
-      item.append(body);
-      item.addEventListener("click", () => void showEntry(e));
-      list.append(item);
-    }
-  }
+  search.addEventListener("input", () => {
+    userCollapsedWhileSearch = false;
+    void refreshTree();
+  });
 
   async function showEntry(summary: EntrySummary) {
     clearTotpTimer();
@@ -1546,10 +1712,11 @@ async function renderVault() {
 
   newBtn.addEventListener("click", () => {
     const e = emptyEntry();
-    if (folderFilter && folderFilter !== "") e.folder_id = folderFilter;
+    if (preferredFolderId && folders.some((f) => f.id === preferredFolderId)) {
+      e.folder_id = preferredFolderId;
+    }
     renderEditor(e, true);
   });
-  search.addEventListener("input", () => void refreshList());
 
   await refreshList();
 }
