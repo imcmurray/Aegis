@@ -1,8 +1,8 @@
-# Aegis — Production Website Design Plan
+# Aegis: Production Website Design Plan
 
 A plan for the commercial website at which people learn about, try, buy, and get support for Aegis, with distinct Personal and Business (Teams / Enterprise) offerings. Aegis is built by [Rinse Repeat Labs](https://RinseRepeatLabs.com/).
 
-A high-fidelity homepage mockup that implements this plan lives at [`mockup/index.html`](./mockup/index.html).
+The site itself is built with Astro on this branch. See [`README.md`](./README.md) for how to run and deploy it.
 
 ---
 
@@ -22,8 +22,8 @@ A high-fidelity homepage mockup that implements this plan lives at [`mockup/inde
 
 **Audience split**
 
-- **Personal** — privacy-conscious individuals and families who distrust cloud password managers after recent breaches. They want: no account, open source, works offline, cheap.
-- **Business** — small teams up to regulated enterprises. They want: admin control, shared vaults, SSO, audit logs, a support SLA, a DPA, and someone to call.
+- **Personal:** privacy-conscious individuals and families who distrust cloud password managers after recent breaches. They want: no account, open source, works offline, cheap.
+- **Business:** small teams up to regulated enterprises. They want: admin control, shared vaults, SSO, audit logs, a support SLA, a DPA, and someone to call.
 
 **Naming caution.** "Aegis" is already used by an unrelated Android authenticator app. Recommend marketing the product as **Aegis Vault** (domain ideas: `aegisvault.app`, `aegis.rinserepeatlabs.com`) and keep the plain "Aegis" as the short name inside the app. Get a trademark search done before launch.
 
@@ -191,7 +191,7 @@ Mission paragraph; "From the makers": Aegis is another application written by Ri
 
 | Need | Recommendation | Why |
 |---|---|---|
-| Marketing site | **Astro** + Tailwind, content in Markdown/MDX, deployed on Cloudflare Pages | Static, fast, docs and blog in the same repo; Tailwind matches the RRL site. (Hugo is acceptable if consistency with the RRL site matters more.) |
+| Marketing site | **Astro**, plain CSS design tokens, self-hosted fonts via Fontsource, deployed on Cloudflare Pages | Static, fast, no third-party requests on page load; docs and blog can live in the same project. Built on this branch. |
 | Product app | Existing Vite build on its own origin (`vault.<domain>`) | Separate origin keeps marketing scripts away from the vault's security boundary |
 | Billing | **Stripe Checkout** + Customer Portal, Stripe Tax | Hosted pages, no card data on our side, handles VAT |
 | Licensing | Signed license token (Ed25519, we already use it) stored in the vault metadata; app checks feature flags offline | Works with zero-knowledge: the license says *who paid*, never *what is inside* |

@@ -1,0 +1,21 @@
+---
+interface Props { eyebrow?: string; title: string; lede?: string }
+const { eyebrow, title, lede } = Astro.props;
+---
+<header class="band hero">
+  <div class="wrap">
+    {eyebrow && <span class="eyebrow">{eyebrow}</span>}
+    <h1 class="display" set:html={title} />
+    {lede && <p class="lede">{lede}</p>}
+    {Astro.slots.has('default') && <div class="btn-row"><slot /></div>}
+  </div>
+</header>
+<style>
+  .hero { padding: 5rem 0 4.5rem; }
+  .hero .wrap { display: grid; gap: 1.25rem; max-width: 46rem; margin-inline: auto; }
+  .eyebrow { color: var(--blue); }
+  h1 { font-size: clamp(2.5rem, 5.5vw, 3.75rem); }
+  h1 :global(em) { color: var(--blue); font-style: italic; }
+  .lede { color: var(--mist-2); }
+  .btn-row { margin-top: .5rem; }
+</style>

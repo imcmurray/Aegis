@@ -1,0 +1,5 @@
+# Aegis security contact. Replace the placeholders before launch.
+Contact: mailto:security@rinserepeatlabs.com
+Preferred-Languages: en
+Policy: https://aegisvault.app/security#disclosure
+Expires: 2027-09-01T00:00:00.000Z

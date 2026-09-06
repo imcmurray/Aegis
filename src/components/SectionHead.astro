@@ -1,0 +1,9 @@
+---
+interface Props { eyebrow?: string; class?: string; dark?: boolean }
+const { eyebrow, class: cls = '', dark = false } = Astro.props;
+---
+<div class:list={['section-head', cls]}>
+  {eyebrow && <span class="eyebrow" style={dark ? 'color:var(--blue)' : undefined}>{eyebrow}</span>}
+  <h2 class="display"><slot /></h2>
+  {Astro.slots.has('lede') && <p class="lede"><slot name="lede" /></p>}
+</div>

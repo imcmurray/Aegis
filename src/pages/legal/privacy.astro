@@ -1,0 +1,35 @@
+---
+import Base from '../../layouts/Base.astro';
+import PageHero from '../../components/PageHero.astro';
+import { site } from '../../data/site';
+---
+<Base title="Privacy Policy" description="How Aegis and Rinse Repeat Labs handle data.">
+  <PageHero eyebrow="Legal" title="Privacy <em>Policy.</em>" lede="Draft for review. Last updated September 2026." />
+  <section class="section">
+    <div class="wrap-narrow prose">
+      <p class="notice">This is a working draft written by the product team. It has not yet been reviewed by counsel and will be replaced before launch.</p>
+      <h2>The short version</h2>
+      <p>Your vault is encrypted on your device. Rinse Repeat Labs cannot read it. The free vault sends nothing to us. Paid plans send ciphertext to a sync relay, plus the minimum billing information required to charge you.</p>
+      <h2>Data we do not have</h2>
+      <ul>
+        <li>Your passphrase, recovery key, master secret or any vault key</li>
+        <li>Your passwords, notes, one-time-code seeds, attachments or entry names</li>
+        <li>Folder structure, labels or search queries</li>
+      </ul>
+      <h2>Data we process on paid plans</h2>
+      <ul>
+        <li><strong>Billing account:</strong> email address, plan, and payment status. Card details are held by Stripe, not by us.</li>
+        <li><strong>Sync relay:</strong> encrypted vault revisions, their sizes, timestamps, and the public verifying key that authorises writes.</li>
+        <li><strong>Support:</strong> the content of messages you send us.</li>
+      </ul>
+      <h2>This website</h2>
+      <p>We use cookieless, aggregate analytics that do not identify visitors and do not set cookies, so there is no consent banner. Forms on this site are delivered by Formspree.</p>
+      <h2>Retention and deletion</h2>
+      <p>Delete your billing account at any time from the account page or by emailing support; relay data is removed within 30 days. Local vaults are yours and are deleted by clearing site data or the app.</p>
+      <h2>Subprocessors</h2>
+      <p>Stripe (billing), Formspree (forms), and the hosting provider for the relay and this site. The current list with regions is published at <a href="/legal/subprocessors">/legal/subprocessors</a>.</p>
+      <h2>Contact</h2>
+      <p><a href={`mailto:${site.supportEmail}`}>{site.supportEmail}</a></p>
+    </div>
+  </section>
+</Base>

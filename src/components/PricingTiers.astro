@@ -1,0 +1,31 @@
+---
+import { plans } from '../data/plans';
+---
+<div class="tiers">
+  {plans.map((p) => (
+    <div class:list={['tier', { hi: p.highlight }]} id={p.id}>
+      {p.tag && <span class="tag">{p.tag}</span>}
+      <h3>{p.name}</h3>
+      <div class="price">{p.price}{p.unit && <small>{p.unit}</small>}</div>
+      <div class="per">{p.per}</div>
+      <ul>{p.features.map((f) => <li>{f}</li>)}</ul>
+      <a class:list={['btn', p.cta.style === 'accent' ? 'btn-accent' : 'btn-outline']} href={p.cta.href}>{p.cta.label}</a>
+    </div>
+  ))}
+</div>
+<style>
+  .tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; align-items: stretch; }
+  .tier { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.6rem; display: grid; gap: .75rem; align-content: start; position: relative; scroll-margin-top: 6rem; }
+  .tier.hi { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .tag { position: absolute; top: -.7rem; left: 1.4rem; font-family: var(--mono); font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; background: var(--accent); color: var(--accent-ink); padding: .2rem .55rem; border-radius: 999px; }
+  h3 { font-size: 1rem; font-weight: 600; }
+  .price { font-family: var(--display); font-size: 2.4rem; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .price small { font-family: var(--font); font-size: .85rem; color: var(--muted); letter-spacing: 0; margin-left: .25rem; }
+  .per { font-size: .8rem; color: var(--muted); margin-top: -.5rem; }
+  ul { list-style: none; padding: 0; margin: .5rem 0 .75rem; display: grid; gap: .4rem; font-size: .88rem; color: var(--text-2); }
+  li { display: flex; gap: .5rem; }
+  li::before { content: "\2713"; color: var(--accent); flex: none; }
+  .btn { justify-content: center; }
+  @media (max-width: 900px) { .tiers { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .tiers { grid-template-columns: 1fr; } }
+</style>

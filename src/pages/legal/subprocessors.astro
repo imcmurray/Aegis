@@ -1,0 +1,22 @@
+---
+import Base from '../../layouts/Base.astro';
+import PageHero from '../../components/PageHero.astro';
+---
+<Base title="Subprocessors" description="Third parties that process data on behalf of Aegis customers.">
+  <PageHero eyebrow="Legal" title="Sub<em>processors.</em>" lede="Every third party that touches customer data, what they receive, and where." />
+  <section class="section">
+    <div class="wrap-narrow">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Provider</th><th>Purpose</th><th>Data</th><th>Region</th></tr></thead>
+          <tbody>
+            <tr><td>Stripe</td><td>Billing</td><td>Email, payment details, plan</td><td>United States</td></tr>
+            <tr><td>Formspree</td><td>Contact forms on this site</td><td>Form contents</td><td>United States</td></tr>
+            <tr><td>Hosting provider (to be confirmed)</td><td>Sync relay and website</td><td>Ciphertext, verifying keys, logs</td><td>To be confirmed</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="notice" style="margin-top:1.5rem">Changes are announced on the changelog at least 30 days before a new subprocessor receives customer data.</p>
+    </div>
+  </section>
+</Base>

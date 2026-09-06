@@ -1,0 +1,88 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHero from '../components/PageHero.astro';
+import SectionHead from '../components/SectionHead.astro';
+import { site } from '../data/site';
+const articles = [
+  { title: 'Getting started with the browser vault', href: `${site.docsUrl}/ACCESS.md` },
+  { title: 'Export and import an encrypted backup', href: `${site.docsUrl}/ACCESS.md#move-to-another-browser--computer` },
+  { title: 'Modes: browser, Freenet, developer', href: `${site.docsUrl}/MODES.md` },
+  { title: 'Multi-device sync and the owner key', href: `${site.docsUrl}/VAULTSYNC.md` },
+  { title: 'Cryptography reference', href: `${site.docsUrl}/CRYPTO.md` },
+  { title: 'Threat model', href: `${site.docsUrl}/THREAT_MODEL.md` },
+];
+---
+<Base title="Support" description="Aegis help center: documentation, contact form, support response times by plan, and how to report a vulnerability.">
+  <PageHero eyebrow="Support" title="Help, from the people <em>who built it.</em>" lede="Start with the documentation. If it does not answer your question, write to us. Paid plans go to a priority queue.">
+    <a class="btn btn-ghost" href={site.docsUrl}>Documentation</a>
+    <a class="btn btn-primary" href="#contact">Contact support</a>
+  </PageHero>
+
+  <section class="section">
+    <div class="wrap">
+      <SectionHead eyebrow="Popular articles">Most questions end <em>here.</em></SectionHead>
+      <ul class="articles">
+        {articles.map((a) => <li><a href={a.href}>{a.title}<span aria-hidden="true">›</span></a></li>)}
+      </ul>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="contact">
+    <div class="wrap two">
+      <div>
+        <SectionHead eyebrow="Contact">Write to <em>support.</em></SectionHead>
+        <form class="form" action={`https://formspree.io/f/${site.forms.support}`} method="POST">
+          <div class="form-row">
+            <label>Name<input type="text" name="name" autocomplete="name" required /></label>
+            <label>Email<input type="email" name="email" autocomplete="email" required /></label>
+          </div>
+          <label>Plan
+            <select name="plan">
+              <option>Free</option><option>Personal</option><option>Family</option><option>Teams</option><option>Enterprise</option>
+            </select>
+          </label>
+          <label>Subject<input type="text" name="subject" required /></label>
+          <label>How can we help?<textarea name="message" required></textarea></label>
+          <p class="hint">Never include a passphrase, recovery key or exported vault in a support message. We will never ask for one.</p>
+          <button class="btn btn-accent" type="submit" style="justify-self:start">Send message</button>
+        </form>
+        <p class="alt">Prefer email? <a href={`mailto:${site.supportEmail}`}>{site.supportEmail}</a></p>
+      </div>
+      <div class="side">
+        <h3>Response times</h3>
+        <div class="table-wrap">
+          <table class="table">
+            <tbody>
+              <tr><td>Free</td><td>Community, best effort</td></tr>
+              <tr><td>Personal</td><td>2 business days</td></tr>
+              <tr><td>Teams</td><td>1 business day</td></tr>
+              <tr><td>Enterprise</td><td>4 business hours, severity based</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>Other channels</h3>
+        <ul class="links">
+          <li><a href={`${site.repoUrl}/discussions`}>GitHub Discussions</a> for questions and ideas</li>
+          <li><a href={`${site.repoUrl}/issues`}>GitHub Issues</a> for bugs in the open-source vault</li>
+          <li><a href={site.statusUrl}>Status page</a> for the sync relay and this site</li>
+          <li><a href="/security#disclosure">Report a vulnerability</a> privately</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</Base>
+<style>
+  .articles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+  .articles a { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem 1.25rem; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font-weight: 500; }
+  .articles a:hover { border-color: var(--accent); }
+  .articles span { color: var(--accent); }
+  .two { display: grid; grid-template-columns: 1.2fr 1fr; gap: 4rem; align-items: start; }
+  .alt { margin-top: 1.25rem; font-size: .9rem; color: var(--muted); }
+  .alt a { color: var(--accent); }
+  .side h3 { font-size: .95rem; font-weight: 600; margin: 0 0 .75rem; }
+  .side .table-wrap { margin-bottom: 2rem; }
+  .side .table td:last-child { text-align: right; color: var(--text-2); }
+  .links { list-style: none; padding: 0; margin: 0; display: grid; gap: .55rem; font-size: .92rem; color: var(--text-2); }
+  .links a { color: var(--accent); }
+  @media (max-width: 900px) { .articles, .two { grid-template-columns: 1fr; } }
+</style>

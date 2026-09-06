@@ -1,0 +1,24 @@
+---
+import { site } from '../data/site';
+interface Props { title?: string; primary?: { label: string; href: string }; secondary?: { label: string; href: string } }
+const {
+  title = 'Start with the free vault. Upgrade when you need <em>sync or a team.</em>',
+  primary = { label: 'Open the free vault', href: site.appUrl },
+  secondary = { label: 'Compare plans', href: '/pricing' },
+} = Astro.props;
+---
+<div class="band final">
+  <div class="wrap">
+    <h2 class="display" set:html={title} />
+    <div class="btn-row">
+      <a class="btn btn-primary" href={primary.href}>{primary.label}</a>
+      <a class="btn btn-ghost" href={secondary.href}>{secondary.label}</a>
+    </div>
+  </div>
+</div>
+<style>
+  .final { padding: 5rem 0; }
+  .final .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 2rem; }
+  h2 { font-size: clamp(2rem, 4vw, 2.75rem); max-width: 30rem; }
+  h2 :global(em) { color: var(--blue); font-style: italic; }
+</style>

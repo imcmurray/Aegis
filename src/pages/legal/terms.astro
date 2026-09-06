@@ -1,0 +1,33 @@
+---
+import Base from '../../layouts/Base.astro';
+import PageHero from '../../components/PageHero.astro';
+import { site } from '../../data/site';
+---
+<Base title="Terms of Service" description="Terms for using Aegis and the paid services from Rinse Repeat Labs.">
+  <PageHero eyebrow="Legal" title="Terms of <em>Service.</em>" lede="Draft for review. Last updated September 2026." />
+  <section class="section">
+    <div class="wrap-narrow prose">
+      <p class="notice">This is a working draft written by the product team. It has not yet been reviewed by counsel and will be replaced before launch.</p>
+      <h2>The software</h2>
+      <p>The Aegis vault is open-source software licensed under MIT or Apache-2.0, at your option. Those licences govern the software itself, including any copy you self-host.</p>
+      <h2>Paid services</h2>
+      <p>Personal, Family, Teams and Enterprise plans are subscriptions to hosted services: encrypted sync, encrypted backup, sharing infrastructure and support. Subscriptions renew until cancelled. Annual plans may be refunded within 30 days of purchase.</p>
+      <h2>Your responsibilities</h2>
+      <ul>
+        <li>Choose a strong passphrase and keep your recovery key safe. We cannot reset either.</li>
+        <li>Do not use the service to store or share material you have no right to.</li>
+        <li>Keep your billing account credentials confidential.</li>
+      </ul>
+      <h2>Our responsibilities</h2>
+      <ul>
+        <li>Operate the relay so that it never requires or receives plaintext vault data.</li>
+        <li>Publish security advisories and changes to subprocessors.</li>
+        <li>Meet the support response times for your plan.</li>
+      </ul>
+      <h2>No recovery, by design</h2>
+      <p>Because we hold no key to your vault, losing both your passphrase and your recovery key means the vault cannot be recovered, by us or by anyone else.</p>
+      <h2>Contact</h2>
+      <p><a href={`mailto:${site.supportEmail}`}>{site.supportEmail}</a></p>
+    </div>
+  </section>
+</Base>

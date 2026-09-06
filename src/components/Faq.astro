@@ -1,0 +1,23 @@
+---
+import type { Faq } from '../data/faq';
+interface Props { items: Faq[]; openFirst?: boolean }
+const { items, openFirst = true } = Astro.props;
+---
+<div class="faq">
+  {items.map((f, i) => (
+    <details open={openFirst && i === 0}>
+      <summary>{f.q}</summary>
+      <p>{f.a}</p>
+    </details>
+  ))}
+</div>
+<style>
+  .faq { max-width: 44rem; }
+  details { border-top: 1px solid var(--line); }
+  details:last-child { border-bottom: 1px solid var(--line); }
+  summary { cursor: pointer; list-style: none; padding: 1.1rem 0; font-weight: 500; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; font-family: var(--mono); color: var(--accent); font-size: 1.1rem; }
+  details[open] summary::after { content: "\2013"; }
+  p { padding: 0 0 1.25rem; color: var(--text-2); max-width: 40rem; }
+</style>

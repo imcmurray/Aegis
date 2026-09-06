@@ -1,0 +1,56 @@
+---
+import Base from '../../layouts/Base.astro';
+import PageHero from '../../components/PageHero.astro';
+import { site } from '../../data/site';
+---
+<Base title="Talk to sales" description="Contact Rinse Repeat Labs about Aegis for Teams and Enterprise: seats, SSO, self-hosting, compliance and support agreements.">
+  <PageHero eyebrow="Teams · Enterprise" title="Tell us about <em>your team.</em>" lede="A short form, answered by an engineer who works on the product. We reply within one business day." />
+  <section class="section">
+    <div class="wrap two">
+      <form class="form" action={`https://formspree.io/f/${site.forms.sales}`} method="POST">
+        <div class="form-row">
+          <label>Name<input type="text" name="name" autocomplete="name" required /></label>
+          <label>Work email<input type="email" name="email" autocomplete="email" required /></label>
+        </div>
+        <div class="form-row">
+          <label>Company<input type="text" name="company" autocomplete="organization" required /></label>
+          <label>Seats
+            <select name="seats"><option>1 to 10</option><option>11 to 50</option><option>51 to 250</option><option>251 to 1,000</option><option>More than 1,000</option></select>
+          </label>
+        </div>
+        <fieldset>
+          <legend>What matters most?</legend>
+          <label class="check"><input type="checkbox" name="needs" value="shared-collections" /> Shared collections</label>
+          <label class="check"><input type="checkbox" name="needs" value="sso-scim" /> SSO and SCIM</label>
+          <label class="check"><input type="checkbox" name="needs" value="self-host" /> Self-hosting</label>
+          <label class="check"><input type="checkbox" name="needs" value="compliance" /> DPA, audit, questionnaire</label>
+          <label class="check"><input type="checkbox" name="needs" value="migration" /> Migration from another manager</label>
+        </fieldset>
+        <label>Anything else<textarea name="message"></textarea></label>
+        <button class="btn btn-accent" type="submit" style="justify-self:start">Send</button>
+        <p class="hint">Or email <a href={`mailto:${site.salesEmail}`}>{site.salesEmail}</a>.</p>
+      </form>
+      <aside class="side">
+        <h3>What happens next</h3>
+        <ol>
+          <li>We reply within one business day with answers to your questions and, if useful, a time to talk.</li>
+          <li>Teams customers get early-access seats immediately. Enterprise scoping takes one or two calls.</li>
+          <li>Paperwork: DPA, subprocessor list and questionnaire answers are ready to send.</li>
+        </ol>
+        <p class="notice">Aegis is built by <a href={site.maker.url}>{site.maker.name}</a>, a software studio in the United States. You will be talking to the people who write the code.</p>
+      </aside>
+    </div>
+  </section>
+</Base>
+<style>
+  .two { display: grid; grid-template-columns: 1.2fr 1fr; gap: 4rem; align-items: start; }
+  fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.1rem; display: grid; gap: .5rem; margin: 0; }
+  legend { font-size: .88rem; font-weight: 500; padding: 0 .35rem; }
+  .check { display: flex; align-items: center; gap: .6rem; font-weight: 400; }
+  .check input { width: auto; }
+  .hint a { color: var(--accent); }
+  .side h3 { font-size: .95rem; font-weight: 600; margin-bottom: .75rem; }
+  .side ol { margin: 0 0 1.5rem; padding-left: 1.2rem; color: var(--text-2); display: grid; gap: .6rem; font-size: .95rem; }
+  .side .notice a { color: var(--accent); }
+  @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+</style>

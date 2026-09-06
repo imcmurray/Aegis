@@ -1,0 +1,15 @@
+---
+// The Aegis shield mark, identical to ui/public/favicon.svg on main.
+interface Props { size?: number; class?: string }
+const { size = 26, class: cls = '' } = Astro.props;
+---
+<svg class={cls} width={size} height={size} viewBox="0 0 512 512" role="img" aria-label="Aegis">
+  <defs>
+    <linearGradient id="aegis-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a2740"/><stop offset="1" stop-color="#0f1419"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#aegis-bg)"/>
+  <g transform="translate(32 462) scale(0.43)" fill="#3d9cf0"><path d="M480-480Zm-7 435Q324-83 225-217.44 126-351.87 126-516v-267.46L480-915l354 131.54V-516q0 6-.5 12.5T833-491H707q1-6 1-12.33v-192.19L480-781l-228 85.48V-516q0 114 63 205.5T473-178v133Zm195-1v-120H548v-126h120v-120h126v120h120v126H794v120H668ZM411-352h138l-24-133q20-12 31.5-32t11.5-43q0-37-25.5-62.5T480-648q-37 0-62.5 25.5T392-560q0 23 11.5 43t31.5 32l-24 133Z"/></g>
+</svg>
+<style>
+  svg { border-radius: 22%; flex: none; }
+</style>

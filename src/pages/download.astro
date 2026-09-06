@@ -1,0 +1,84 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHero from '../components/PageHero.astro';
+import SectionHead from '../components/SectionHead.astro';
+import Cta from '../components/Cta.astro';
+import { site } from '../data/site';
+---
+<Base title="Download" description="Open the Aegis web vault, self-host the static build, or run it over Freenet. Desktop, mobile and browser extension are in development.">
+  <PageHero eyebrow="Download" title="Nothing to install. <em>Unless you want to.</em>" lede="The vault runs in any modern browser. Self-hosting is a static folder. Native apps and a browser extension are on the way.">
+    <a class="btn btn-primary" href={site.appUrl}>Open the web vault</a>
+  </PageHero>
+
+  <section class="section">
+    <div class="wrap grid">
+      <div class="card">
+        <span class="eyebrow">Web</span>
+        <h3>Browser vault</h3>
+        <p>Chrome, Firefox, Safari and Edge, current versions. Your vault is stored in this browser's IndexedDB, sealed with your passphrase.</p>
+        <a class="btn btn-accent" href={site.appUrl}>Open vault</a>
+      </div>
+      <div class="card">
+        <span class="eyebrow">Self-host</span>
+        <h3>Static build</h3>
+        <p>Package the release and serve the folder from any web server. No backend, no database.</p>
+        <pre><code>git clone {site.repoUrl}
+cd Aegis && ./scripts/package-release.sh
+npx serve dist/freenet-release/ui -l 4173</code></pre>
+      </div>
+      <div class="card">
+        <span class="eyebrow">Freenet · experimental</span>
+        <h3>Decentralised mode</h3>
+        <p>Run a local Freenet peer and open the vault with <code>?mode=freenet</code> to sync through the mesh with no relay at all.</p>
+        <a class="btn btn-outline" href={`${site.docsUrl}/FREENET.md`}>Freenet guide</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap">
+      <SectionHead eyebrow="Coming">Native apps and <em>autofill.</em></SectionHead>
+      <div class="soon">
+        <div><h3>Browser extension</h3><p>Autofill and capture for Chrome and Firefox, talking to the same local vault.</p><span class="chip">In development</span></div>
+        <div><h3>Desktop</h3><p>macOS, Windows and Linux builds with system keychain unlock.</p><span class="chip">Planned</span></div>
+        <div><h3>Mobile</h3><p>iOS and Android with biometric unlock and system autofill.</p><span class="chip">Planned</span></div>
+      </div>
+      <p class="fine">Want to be told when these ship? <a href="/support#contact">Leave your email with support</a> and we will send one message per release, nothing else.</p>
+    </div>
+  </section>
+
+  <section class="section" id="verify">
+    <div class="wrap two">
+      <div class="prose">
+        <span class="eyebrow">Verify a build</span>
+        <h2 style="margin-top:.5rem">Compare the hashes</h2>
+        <p>Every release ships <code>aegis_vault_delegate.hash.json</code> and <code>aegis_vault_sync.hash.json</code> beside the WASM modules. Build from the tagged commit and confirm the hashes match what the hosted vault serves.</p>
+      </div>
+      <pre class="code"><code>git clone {site.repoUrl}
+cd Aegis && git checkout {site.latestRelease}
+rustup target add wasm32-unknown-unknown
+./scripts/build-wasm.sh
+cat ui/public/*.hash.json
+# compare with the same files on the hosted origin</code></pre>
+    </div>
+  </section>
+
+  <Cta />
+</Base>
+<style>
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.75rem; display: grid; gap: .75rem; align-content: start; }
+  .card h3 { font-size: 1.15rem; font-weight: 600; }
+  .card p { color: var(--text-2); font-size: .95rem; }
+  .card code { font-family: var(--mono); font-size: .85em; }
+  .card .btn { justify-self: start; }
+  pre { margin: 0; background: var(--ink); color: var(--mist); padding: 1rem 1.2rem; border-radius: 8px; overflow-x: auto; font-family: var(--mono); font-size: .8rem; line-height: 1.55; }
+  .soon { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; }
+  .soon h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: .4rem; }
+  .soon p { color: var(--text-2); font-size: .95rem; margin-bottom: .75rem; }
+  .chip { font-family: var(--mono); font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--line); border-radius: 999px; padding: .2rem .6rem; color: var(--muted); }
+  .fine { margin-top: 2rem; font-size: .9rem; color: var(--muted); }
+  .fine a { color: var(--accent); }
+  .two { display: grid; grid-template-columns: 1fr 1.2fr; gap: 3rem; align-items: center; }
+  @media (max-width: 900px) { .grid, .soon, .two { grid-template-columns: 1fr; } }
+</style>

@@ -1,0 +1,84 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHero from '../components/PageHero.astro';
+import SectionHead from '../components/SectionHead.astro';
+import Faq from '../components/Faq.astro';
+import Cta from '../components/Cta.astro';
+import { businessFaq } from '../data/faq';
+---
+<Base title="Business" description="Aegis for teams and enterprises: shared collections, admin controls, SSO and a support SLA, with the same guarantee that nobody outside your company can read your vault.">
+  <PageHero eyebrow="Teams · Enterprise" title="Zero-knowledge for the <em>whole team.</em>" lede="Share credentials with colleagues, enforce policy from an admin console, and integrate with your identity provider. The guarantee does not change: we cannot read your vault.">
+    <a class="btn btn-primary" href="/enterprise/contact">Talk to sales</a>
+    <a class="btn btn-ghost" href="/pricing#teams">Teams pricing</a>
+  </PageHero>
+
+  <div class="section" style="padding-bottom:0">
+    <div class="wrap">
+      <p class="notice"><strong>Early access.</strong> Shared collections and the admin console are being built now. Early-access customers receive features as they ship, a direct line to the engineering team, and locked pricing. Enterprise agreements are scoped individually.</p>
+    </div>
+  </div>
+
+  <section class="section">
+    <div class="wrap">
+      <SectionHead eyebrow="Capabilities">Built for the way <em>companies share secrets.</em></SectionHead>
+      <div class="grid">
+        <div class="cap"><span class="eyebrow">Teams</span><h3>Shared collections</h3><p>Group credentials by team or system. Each collection has its own key, wrapped for every member, so removing someone is a key rotation, not a hope.</p></div>
+        <div class="cap"><span class="eyebrow">Teams</span><h3>Role-based access</h3><p>Owner, admin, editor and viewer roles per collection. Viewers can use a credential without ever seeing it revealed in the interface.</p></div>
+        <div class="cap"><span class="eyebrow">Teams</span><h3>Admin console</h3><p>Invite and remove members, require a minimum passphrase strength and KDF profile, and see which devices have synced.</p></div>
+        <div class="cap"><span class="eyebrow">Teams</span><h3>Audit log export</h3><p>Every share, revoke, membership change and policy edit is signed and exportable as JSON or CSV. Secret values never appear in a log line.</p></div>
+        <div class="cap"><span class="eyebrow">Enterprise</span><h3>SSO and SCIM</h3><p>SAML or OIDC sign-in for the billing account, and SCIM provisioning to add and remove members automatically. The vault key still derives from the user's passphrase.</p></div>
+        <div class="cap"><span class="eyebrow">Enterprise</span><h3>Self-host or dedicated tenant</h3><p>Run the static vault and the sync relay on your own infrastructure with our support, or take a dedicated tenant in the region you choose.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap two">
+      <div>
+        <SectionHead eyebrow="Compliance">Paperwork, <em>ready when you are.</em></SectionHead>
+        <p class="lede">Buyers ask the same questions in the same order. The answers are published, not gated behind a sales call.</p>
+        <ul class="checks">
+          <li>Data processing agreement (standard on Enterprise, on request for Teams)</li>
+          <li>Published subprocessor list and change notifications</li>
+          <li>Security questionnaire answers based on the public threat model</li>
+          <li>Independent audit: planned before Teams leaves early access</li>
+          <li>SOC 2 Type I: on the roadmap once the hosted relay is in production</li>
+        </ul>
+      </div>
+      <div>
+        <h3 class="sla-title">Support by plan</h3>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Plan</th><th>Channel</th><th>First response</th></tr></thead>
+            <tbody>
+              <tr><td>Free</td><td>Community, GitHub</td><td>Best effort</td></tr>
+              <tr><td>Personal</td><td>Email</td><td>2 business days</td></tr>
+              <tr><td>Teams</td><td>Priority email</td><td>1 business day</td></tr>
+              <tr><td>Enterprise</td><td>Named contact, email and video</td><td>4 business hours, severity based</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <SectionHead eyebrow="Questions">For <em>teams.</em></SectionHead>
+      <Faq items={businessFaq} />
+    </div>
+  </section>
+
+  <Cta title="Bring zero-knowledge to <em>your team.</em>" primary={{ label: 'Talk to sales', href: '/enterprise/contact' }} secondary={{ label: 'Compare plans', href: '/pricing' }} />
+</Base>
+<style>
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .cap { background: var(--surface); padding: 1.75rem; display: grid; gap: .5rem; align-content: start; }
+  .cap h3 { font-size: 1.05rem; font-weight: 600; }
+  .cap p { font-size: .92rem; color: var(--text-2); }
+  .two { display: grid; grid-template-columns: 1.1fr 1fr; gap: 4rem; align-items: start; }
+  .checks { list-style: none; padding: 0; margin: 1.25rem 0 0; display: grid; gap: .6rem; color: var(--text-2); }
+  .checks li::before { content: "\2713"; color: var(--accent); margin-right: .7rem; font-weight: 600; }
+  .sla-title { font-size: .95rem; font-weight: 600; margin-bottom: .75rem; }
+  @media (max-width: 900px) { .grid, .two { grid-template-columns: 1fr; } }
+</style>

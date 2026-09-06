@@ -1,0 +1,45 @@
+---
+import Logo from './Logo.astro';
+import { footerColumns, site } from '../data/site';
+---
+<footer>
+  <div class="wrap">
+    <div class="grid">
+      <div class="brand-col">
+        <a class="brand" href="/"><Logo /> Aegis</a>
+        <p>An open-source, zero-knowledge password manager for people and teams who would rather hold their own keys.</p>
+      </div>
+      {footerColumns.map((col) => (
+        <div>
+          <h4>{col.title}</h4>
+          <ul>{col.links.map((l) => <li><a href={l.href}>{l.label}</a></li>)}</ul>
+        </div>
+      ))}
+    </div>
+    <div class="bottom">
+      <span class="rrl">Aegis is another application written by <a href={site.maker.url} rel="noopener">{site.maker.name}</a></span>
+      <div class="meta">
+        <span>© {site.year} {site.maker.name}</span>
+        <span>{site.license}</span>
+        <a class="status" href={site.statusUrl}><i></i>All systems normal</a>
+      </div>
+    </div>
+  </div>
+</footer>
+<style>
+  footer { background: var(--ink); color: var(--mist-2); border-top: 1px solid var(--line-dark); font-size: .88rem; }
+  .grid { display: grid; grid-template-columns: 1.4fr repeat(4, 1fr); gap: 2rem; padding: 3.5rem 0 2.5rem; }
+  h4 { margin: 0 0 .9rem; font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--mist); font-weight: 600; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .45rem; }
+  ul a:hover { color: var(--mist); }
+  .brand { display: inline-flex; align-items: center; gap: .55rem; font-weight: 600; letter-spacing: -.02em; font-size: 1.05rem; color: var(--mist); }
+  .brand-col p { max-width: 20rem; margin-top: .75rem; }
+  .bottom { border-top: 1px solid var(--line-dark); padding: 1.4rem 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; align-items: center; font-size: .82rem; }
+  .rrl a { color: var(--mist); border-bottom: 1px solid var(--line-dark); transition: border-color .2s; }
+  .rrl a:hover { border-color: var(--blue); }
+  .meta { display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap; }
+  .status { display: inline-flex; align-items: center; gap: .4rem; }
+  .status i { width: 7px; height: 7px; border-radius: 50%; background: #7fd962; display: inline-block; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+</style>

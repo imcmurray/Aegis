@@ -1,0 +1,27 @@
+---
+// The real key hierarchy from docs/ARCHITECTURE.md and docs/CRYPTO.md on main.
+---
+<div class="keytree" aria-label="Key hierarchy">
+  <div class="kn"><span class="box root">Master passphrase</span><span class="note">never stored</span></div>
+  <div class="edge"><span>Argon2id(salt, params) → KEK</span></div>
+  <div class="kn"><span class="box">MasterSecret · 32 B</span><span class="note">wrapped by KEK, optionally by recovery key</span></div>
+  <div class="edge"><span>HKDF-SHA256, domain-separated</span></div>
+  <div class="leaves">
+    <div class="kn"><span class="box">aegis/v1/vault-dek</span><span class="note">seals the vault</span></div>
+    <div class="kn"><span class="box">aegis/v1/sync-sign</span><span class="note">Ed25519 owner identity</span></div>
+    <div class="kn"><span class="box">aegis/v1/sync-addr</span><span class="note">non-enumerable sync address</span></div>
+    <div class="kn"><span class="box">aegis/v1/share-ecdh</span><span class="note">X25519, sharing (planned)</span></div>
+  </div>
+</div>
+<style>
+  .keytree { font-family: var(--mono); font-size: .8rem; display: grid; color: var(--mist); }
+  .kn { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; }
+  .box { border: 1px solid var(--line-dark); background: var(--slate); border-radius: 7px; padding: .55rem .8rem; }
+  .box.root { border-color: color-mix(in srgb, var(--blue) 60%, var(--line-dark)); color: var(--blue); }
+  .note { color: var(--mist-2); font-size: .72rem; font-family: var(--font); }
+  .edge { height: 22px; width: 1px; background: var(--line-dark); margin-left: 1.25rem; position: relative; }
+  .edge span { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); white-space: nowrap; font-size: .7rem; color: var(--mist-2); }
+  .leaves { display: grid; gap: .45rem; padding-left: 1.25rem; border-left: 1px solid var(--line-dark); margin-left: 1.25rem; }
+  .leaves .kn { position: relative; }
+  .leaves .kn::before { content: ""; position: absolute; left: -1.25rem; top: 50%; width: 1rem; height: 1px; background: var(--line-dark); }
+</style>

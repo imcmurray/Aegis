@@ -1,0 +1,58 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHero from '../components/PageHero.astro';
+import SectionHead from '../components/SectionHead.astro';
+import Cta from '../components/Cta.astro';
+import Logo from '../components/Logo.astro';
+import { site } from '../data/site';
+---
+<Base title="About" description="Why Aegis exists, and the studio behind it: Rinse Repeat Labs.">
+  <PageHero eyebrow="About" title="A vault you can <em>read the source of.</em>" lede="Aegis started from a simple objection: a password manager should not need to be trusted, only verified." />
+
+  <section class="section">
+    <div class="wrap-narrow prose">
+      <h2>Why we built it</h2>
+      <p>Most password managers ask you to trust a company with the most sensitive data you own, and then ask you to trust that company's cloud, its employees and its incident response. The breaches of the last few years showed what that trust costs.</p>
+      <p>Aegis takes a different position. The cryptography runs on your device, the source is public, the threat model is written down, and the paid plans only ever hold ciphertext. If you want to check any of that, you can.</p>
+      <h2>Principles</h2>
+      <ul>
+        <li><strong>Zero-knowledge is the product.</strong> No feature ships if it requires us to see plaintext.</li>
+        <li><strong>Free means the whole thing.</strong> The browser vault is not a trial. It is the vault.</li>
+        <li><strong>Say what is not protected.</strong> The threat model lists the limits, not only the guarantees.</li>
+        <li><strong>No lock-in.</strong> Encrypted export, self-hosting and open source keep the exit open.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap makers">
+      <div>
+        <SectionHead eyebrow="From the makers">Another application <em>from Rinse Repeat Labs.</em></SectionHead>
+        <p class="lede">Aegis is designed and built by Rinse Repeat Labs, a software studio that builds mobile, web and desktop applications. The same team answers support and reads every vulnerability report.</p>
+        <div class="btn-row" style="margin-top:1.5rem">
+          <a class="btn btn-accent" href={site.maker.url} rel="noopener">Visit RinseRepeatLabs.com</a>
+          <a class="btn btn-outline" href={site.repoUrl}>Aegis on GitHub</a>
+        </div>
+      </div>
+      <div class="card">
+        <Logo size={56} />
+        <div>
+          <strong>Aegis</strong>
+          <span>by Rinse Repeat Labs</span>
+        </div>
+        <p>Open-source, zero-knowledge password manager. MIT or Apache-2.0.</p>
+      </div>
+    </div>
+  </section>
+
+  <Cta />
+</Base>
+<style>
+  .makers { display: grid; grid-template-columns: 1.2fr 1fr; gap: 4rem; align-items: center; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 2rem; display: grid; gap: 1rem; justify-items: start; }
+  .card div { display: grid; }
+  .card strong { font-size: 1.25rem; letter-spacing: -.02em; }
+  .card span { color: var(--muted); font-size: .9rem; }
+  .card p { color: var(--text-2); font-size: .92rem; }
+  @media (max-width: 900px) { .makers { grid-template-columns: 1fr; } }
+</style>

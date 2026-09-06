@@ -1,0 +1,92 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHero from '../components/PageHero.astro';
+import SectionHead from '../components/SectionHead.astro';
+import Faq from '../components/Faq.astro';
+import Cta from '../components/Cta.astro';
+import { personalFaq } from '../data/faq';
+import { site } from '../data/site';
+---
+<Base title="Personal" description="Aegis for individuals and families: a free, open-source vault with no account, and encrypted sync when you want it on every device.">
+  <PageHero eyebrow="Personal · Family" title="Privacy that doesn't need <em>an account.</em>" lede="Everything you need to manage passwords is free and runs in your browser. Personal adds encrypted sync and backup, so the same vault is on every device without the export ritual.">
+    <a class="btn btn-primary" href={site.appUrl}>Open the free vault</a>
+    <a class="btn btn-ghost" href="/pricing#personal">See Personal pricing</a>
+  </PageHero>
+
+  <section class="section">
+    <div class="wrap">
+      <SectionHead eyebrow="Free, forever">The whole vault, <em>nothing held back.</em></SectionHead>
+      <div class="cols">
+        <div><h3>Unlimited entries</h3><p>Logins, secure notes, custom fields, folders and labels. There is no cap and no premium unlock for basics.</p></div>
+        <div><h3>One-time codes</h3><p>Store TOTP seeds next to the password they protect and copy both in a single motion.</p></div>
+        <div><h3>Generator and health</h3><p>Generate strong passwords and see which existing ones are weak, reused or old. Nothing leaves your device to compute this.</p></div>
+        <div><h3>Recovery key</h3><p>Print or save a recovery key once, offline, and a forgotten passphrase becomes an inconvenience instead of a loss.</p></div>
+        <div><h3>Encrypted export</h3><p>Download a sealed <code>.aegis</code> backup at any time. It opens in any browser running Aegis, with your passphrase.</p></div>
+        <div><h3>No account, no tracking</h3><p>The free vault never talks to a server. There is nothing to sign up for and nothing to unsubscribe from.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap two">
+      <div>
+        <SectionHead eyebrow="Personal plan">One vault, <em>every device.</em></SectionHead>
+        <p class="lede">Personal carries your encrypted vault between devices through a relay that cannot read it. The relay stores ciphertext and a signature. The key never leaves your devices.</p>
+        <ul class="checks">
+          <li>Encrypted sync across browsers and computers</li>
+          <li>Encrypted cloud backup, restorable with passphrase or recovery key</li>
+          <li>Email support within two business days</li>
+          <li>Family add-on: one bill, up to six private vaults, one shared vault</li>
+        </ul>
+        <div class="btn-row"><a class="btn btn-accent" href="/pricing#personal">Start Personal, $29 a year</a></div>
+      </div>
+      <div class="how">
+        <h3>What the relay can see</h3>
+        <table class="table">
+          <tbody>
+            <tr><td>Your passwords, notes, codes</td><td class="no">Never</td></tr>
+            <tr><td>Site names and folder structure</td><td class="no">Never</td></tr>
+            <tr><td>Your passphrase or master secret</td><td class="no">Never</td></tr>
+            <tr><td>Ciphertext size and write times</td><td class="part">Yes</td></tr>
+            <tr><td>Number of devices syncing</td><td class="part">Approximately</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <SectionHead eyebrow="Switching">Moving from another <em>password manager.</em></SectionHead>
+      <div class="cols">
+        <div><h3>1Password</h3><p>Export a 1PUX or CSV file, then use Import in Aegis. Entries, URLs, notes and TOTP seeds are mapped automatically.</p></div>
+        <div><h3>Bitwarden</h3><p>Export unencrypted JSON, import into Aegis, then delete the export file. Folders become Aegis folders.</p></div>
+        <div><h3>LastPass</h3><p>Export CSV from the LastPass web vault and import. Secure notes are preserved as note entries.</p></div>
+      </div>
+      <p class="notice" style="margin-top:2rem">Importers run entirely in your browser. Delete the exported file from your other manager once the import is confirmed; those exports are not encrypted.</p>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap">
+      <SectionHead eyebrow="Questions">For <em>individuals.</em></SectionHead>
+      <Faq items={personalFaq} />
+    </div>
+  </section>
+
+  <Cta />
+</Base>
+<style>
+  .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem 2.5rem; }
+  .cols h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: .4rem; }
+  .cols p { color: var(--text-2); font-size: .95rem; }
+  .cols code { font-family: var(--mono); font-size: .85em; }
+  .two { display: grid; grid-template-columns: 1.1fr 1fr; gap: 4rem; align-items: start; }
+  .checks { list-style: none; padding: 0; margin: 1.25rem 0 1.75rem; display: grid; gap: .6rem; color: var(--text-2); }
+  .checks li::before { content: "\2713"; color: var(--accent); margin-right: .7rem; font-weight: 600; }
+  .how { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.5rem; }
+  .how h3 { font-size: .95rem; font-weight: 600; margin-bottom: .75rem; }
+  .how .table td { padding: .6rem .25rem; font-size: .9rem; }
+  .how .table td:last-child { text-align: right; }
+  @media (max-width: 900px) { .cols, .two { grid-template-columns: 1fr; } }
+</style>

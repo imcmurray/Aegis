@@ -1,0 +1,54 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHero from '../components/PageHero.astro';
+import SectionHead from '../components/SectionHead.astro';
+import PricingTiers from '../components/PricingTiers.astro';
+import Faq from '../components/Faq.astro';
+import Cta from '../components/Cta.astro';
+import { comparison } from '../data/plans';
+import { pricingFaq } from '../data/faq';
+const mark = (v: string) => (v === 'Yes' ? 'yes' : v === 'No' ? 'no' : '');
+---
+<Base title="Pricing" description="Aegis pricing: a free open-source vault, Personal sync from $29 a year, Teams from $4 per user, and Enterprise agreements.">
+  <PageHero eyebrow="Pricing" title="Start free. Pay when you need <em>sync or a team.</em>" lede="The free vault is the full product. Paid plans add the things that need a server or a contract: sync, backup, sharing, administration and support." />
+
+  <section class="section">
+    <div class="wrap">
+      <PricingTiers />
+      <p class="fine">Prices in USD, before tax. Annual plans include two months free compared with monthly billing. Family is a $49 a year add-on to Personal for up to six people.</p>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap">
+      <SectionHead eyebrow="Compare">Every plan, <em>side by side.</em></SectionHead>
+      <div class="table-wrap">
+        <table class="table compare">
+          <thead><tr><th>Feature</th><th>Free</th><th>Personal</th><th>Teams</th><th>Enterprise</th></tr></thead>
+          <tbody>
+            {comparison.map((row) => (
+              <tr>
+                <td>{row.feature}</td>
+                {row.values.map((v) => <td class={mark(v)}>{v}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <SectionHead eyebrow="Billing questions">Before you <em>pay.</em></SectionHead>
+      <Faq items={pricingFaq} />
+    </div>
+  </section>
+
+  <Cta />
+</Base>
+<style>
+  .fine { margin-top: 1.5rem; font-size: .85rem; color: var(--muted); max-width: 44rem; }
+  .compare td:first-child { font-weight: 500; min-width: 16rem; }
+  .compare td:not(:first-child) { min-width: 9rem; }
+</style>

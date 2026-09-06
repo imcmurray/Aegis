@@ -1,0 +1,115 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHero from '../components/PageHero.astro';
+import SectionHead from '../components/SectionHead.astro';
+import KeyTree from '../components/KeyTree.astro';
+import Cta from '../components/Cta.astro';
+import { site } from '../data/site';
+---
+<Base title="Security" description="How Aegis protects your vault: Argon2id, XChaCha20-Poly1305, HKDF-SHA256 and Ed25519, a published threat model, open source, and a responsible disclosure policy.">
+  <PageHero eyebrow="Security" title="Zero-knowledge, <em>documented.</em>" lede="This page is the same material a reviewer would read in the repository, in plain language. Every claim links to the code or document that backs it.">
+    <a class="btn btn-ghost" href={`${site.docsUrl}/THREAT_MODEL.md`}>Threat model</a>
+    <a class="btn btn-ghost" href={`${site.docsUrl}/CRYPTO.md`}>Cryptography</a>
+  </PageHero>
+
+  <section class="section">
+    <div class="wrap two">
+      <div class="prose">
+        <span class="eyebrow">Architecture</span>
+        <h2 style="margin-top:.5rem">One passphrase, one key hierarchy</h2>
+        <p>Your passphrase is stretched with Argon2id into a key-encryption key. That key unwraps a random 32-byte master secret, and every other key is derived from the master secret with HKDF-SHA256 under a domain-separated label.</p>
+        <p>Changing the passphrase re-wraps the master secret only, so the vault is never decrypted and re-encrypted in bulk. A recovery key wraps the same master secret independently.</p>
+        <p>In the browser, all of this runs in WebAssembly compiled from the <code>common</code> Rust crate. Sealed blobs live in IndexedDB. No key material is written to disk unencrypted.</p>
+      </div>
+      <div class="tree"><KeyTree /></div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap">
+      <SectionHead eyebrow="Cryptography">Algorithms, <em>version one.</em></SectionHead>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Purpose</th><th>Algorithm</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Passphrase KDF</td><td class="mono">Argon2id</td><td>16-byte salt; profiles below</td></tr>
+            <tr><td>Vault and envelope AEAD</td><td class="mono">XChaCha20-Poly1305</td><td>24-byte nonce, 16-byte tag</td></tr>
+            <tr><td>Key derivation</td><td class="mono">HKDF-SHA256</td><td>Domain-separated labels</td></tr>
+            <tr><td>Sync write authorisation</td><td class="mono">Ed25519</td><td>Contract verifies under the owner key</td></tr>
+            <tr><td>Share key wrap (planned)</td><td class="mono">X25519 + HKDF + AEAD</td><td>Capability-wrapped item keys</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3 class="sub">KDF profiles</h3>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Profile</th><th>Memory</th><th>Iterations</th><th>Parallelism</th><th>Use</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">Interactive</td><td>64 MiB</td><td>3</td><td>1</td><td>Default desktop</td></tr>
+            <tr><td class="mono">Mobile</td><td>32 MiB</td><td>2</td><td>1</td><td>Constrained devices</td></tr>
+            <tr><td class="mono">High</td><td>128 MiB</td><td>4</td><td>2</td><td>High-security vaults</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fine">All sealed blobs carry a version and kind in an <code>AegisEnvelopeV1</code> header with associated data <code>aegis/v1 || kind || vault_id || logical_id</code>, so a blob cannot be swapped into a different role.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <SectionHead eyebrow="Threat model">What we protect, <em>and what we do not.</em></SectionHead>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Adversary</th><th>Protected</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Network observer or malicious relay peer</td><td class="yes">Yes</td><td>Sees ciphertext and coarse metadata: size and timing.</td></tr>
+            <tr><td>Server or peer hosting sync state</td><td class="yes">Yes</td><td>Untrusted. It validates signatures and stores bytes.</td></tr>
+            <tr><td>Rinse Repeat Labs</td><td class="yes">Yes</td><td>We hold no key that opens a vault. A subpoena yields ciphertext.</td></tr>
+            <tr><td>Stolen locked device</td><td class="yes">Yes</td><td>At-rest AEAD. Offline strength is passphrase entropy plus Argon2id.</td></tr>
+            <tr><td>Other websites in the same browser</td><td class="part">Mostly</td><td>Origin isolation. A passphrase typed into a phishing copy of the UI is not protected.</td></tr>
+            <tr><td>Malicious update to the Aegis UI</td><td class="part">Partial</td><td>Reproducible builds and published hashes let you verify; a hostile UI can still read an unlocked vault.</td></tr>
+            <tr><td>Stolen unlocked device or memory dump</td><td class="no">No</td><td>The classic password-manager limit. Lock the vault when you step away.</td></tr>
+            <tr><td>Coercion or duress</td><td class="no">No</td><td>Out of scope.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fine">The complete model, including logging policy and sharing risks, is in <a href={`${site.docsUrl}/THREAT_MODEL.md`}>THREAT_MODEL.md</a>.</p>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap three">
+      <div class="prose">
+        <h3>Open source</h3>
+        <p>Every component is public under MIT or Apache-2.0: the crypto core, the browser vault, the sync contract, the Freenet delegate and the documentation.</p>
+        <p><a href={site.repoUrl}>github.com/imcmurray/Aegis</a></p>
+      </div>
+      <div class="prose">
+        <h3>Reproducible builds</h3>
+        <p>Each release publishes blake3 hashes for the WASM modules. Build from the tagged commit and compare. Instructions are on the <a href="/download#verify">download page</a>.</p>
+      </div>
+      <div class="prose" id="disclosure">
+        <h3>Responsible disclosure</h3>
+        <p>Found a vulnerability? Email <a href={`mailto:${site.securityEmail}`}>{site.securityEmail}</a>. We acknowledge within two business days, keep you informed, and credit you in the release notes if you want. Please give us reasonable time to fix before publishing. Machine-readable details are in <a href="/.well-known/security.txt">security.txt</a>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="notice"><strong>Audit status.</strong> Aegis has not yet been independently audited. The cryptography and threat model are published for public review now, and an independent audit is planned before Teams leaves early access. The report will be linked here when it exists.</div>
+    </div>
+  </section>
+
+  <Cta title="Read the code, then <em>trust the vault.</em>" primary={{ label: 'View on GitHub', href: site.repoUrl }} secondary={{ label: 'Open the free vault', href: site.appUrl }} />
+</Base>
+<style>
+  .two { display: grid; grid-template-columns: 1fr 1.1fr; gap: 4rem; align-items: center; }
+  .tree { background: var(--ink); border: 1px solid var(--line-dark); border-radius: var(--radius); padding: 1.75rem; }
+  .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.5rem; }
+  .sub { font-size: 1rem; font-weight: 600; margin: 2rem 0 .75rem; }
+  .fine { margin-top: 1rem; font-size: .88rem; color: var(--muted); }
+  .fine code { font-family: var(--mono); font-size: .85em; }
+  .fine a { color: var(--accent); }
+  @media (max-width: 900px) { .two, .three { grid-template-columns: 1fr; } }
+</style>

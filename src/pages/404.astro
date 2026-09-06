@@ -1,0 +1,21 @@
+---
+import Base from '../layouts/Base.astro';
+import { site } from '../data/site';
+---
+<Base title="Not found">
+  <section class="section">
+    <div class="wrap-narrow nf">
+      <span class="eyebrow">404</span>
+      <h1 class="display">That page is <em>not in the vault.</em></h1>
+      <p class="lede">The link may be old, or the address mistyped.</p>
+      <div class="btn-row">
+        <a class="btn btn-accent" href="/">Home</a>
+        <a class="btn btn-outline" href={site.appUrl}>Open the vault</a>
+      </div>
+    </div>
+  </section>
+</Base>
+<style>
+  .nf { display: grid; gap: 1.25rem; justify-items: start; padding: 4rem 0; }
+  h1 { font-size: clamp(2.5rem, 5vw, 3.5rem); }
+</style>

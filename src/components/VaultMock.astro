@@ -1,0 +1,63 @@
+---
+import Logo from './Logo.astro';
+// An illustrative vault window with example data. Nothing here is a real credential.
+---
+<div class="frame" aria-label="Aegis vault, example data">
+  <div class="vault">
+    <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">vault.aegis.app</div></div>
+    <div class="head">
+      <span class="brand"><Logo size={20} /> Aegis</span>
+      <span class="chips"><span class="chip on">unlocked</span><span class="chip">browser vault</span></span>
+    </div>
+    <div class="body">
+      <div class="list">
+        <div class="search">Search 214 entries</div>
+        <div class="entry active"><div class="ico">GH</div><div><div class="t">GitHub</div><div class="s">ian@example.com</div></div></div>
+        <div class="entry"><div class="ico">FM</div><div><div class="t">Fastmail</div><div class="s">Work · 2FA</div></div></div>
+        <div class="entry"><div class="ico">CU</div><div><div class="t">Credit union</div><div class="s">Finance</div></div></div>
+        <div class="entry"><div class="ico">CF</div><div><div class="t">Cloudflare</div><div class="s">Infrastructure · 2FA</div></div></div>
+        <div class="entry"><div class="ico">ST</div><div><div class="t">Stripe</div><div class="s">Finance</div></div></div>
+      </div>
+      <div class="detail">
+        <h3>GitHub</h3>
+        <div class="field"><span class="lbl">Username</span><div class="val">ian@example.com <span class="act">Copy</span></div></div>
+        <div class="field"><span class="lbl">Password</span><div class="val">••••••••••••••••••••<span class="act">Reveal</span></div></div>
+        <div class="field"><span class="lbl">One-time code</span><div class="val"><span class="code">482 913</span><span class="ring" aria-hidden="true"></span><span class="act">Copy</span></div></div>
+        <div class="field"><span class="lbl">Password health</span><div class="bar-h"><i></i></div><small>Strong · unique · last changed 41 days ago</small></div>
+      </div>
+    </div>
+  </div>
+</div>
+<style>
+  .frame { position: relative; align-self: end; margin-bottom: -2px; }
+  .vault { background: var(--slate); border: 1px solid var(--line-dark); border-bottom: 0; border-radius: 14px 14px 0 0; box-shadow: var(--shadow); color: var(--mist); font-size: .85rem; overflow: hidden; }
+  .bar { display: flex; align-items: center; gap: .5rem; padding: .7rem 1rem; border-bottom: 1px solid var(--line-dark); background: color-mix(in srgb, var(--ink) 60%, var(--slate)); }
+  .dots { display: flex; gap: 5px; }
+  .dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--line-dark); display: block; }
+  .url { flex: 1; text-align: center; font-family: var(--mono); font-size: .72rem; color: var(--mist-2); }
+  .head { display: flex; align-items: center; justify-content: space-between; padding: .9rem 1.1rem .6rem; }
+  .brand { display: inline-flex; align-items: center; gap: .45rem; font-weight: 600; font-size: .95rem; }
+  .chips { display: flex; gap: .4rem; }
+  .chip { font-family: var(--mono); font-size: .66rem; letter-spacing: .04em; padding: .2rem .55rem; border-radius: 999px; border: 1px solid var(--line-dark); color: var(--mist-2); }
+  .chip.on { border-color: color-mix(in srgb, #7fd962 45%, var(--line-dark)); color: #9fe58a; background: color-mix(in srgb, #7fd962 12%, transparent); }
+  .body { display: grid; grid-template-columns: 1fr 1.25fr; }
+  .list { border-right: 1px solid var(--line-dark); padding: .5rem .6rem 1rem; }
+  .search { font-size: .78rem; color: var(--mist-2); background: var(--ink); border: 1px solid var(--line-dark); border-radius: 7px; padding: .45rem .7rem; margin: .3rem .3rem .6rem; }
+  .entry { display: flex; align-items: center; gap: .6rem; padding: .5rem .6rem; border-radius: 7px; }
+  .entry.active { background: color-mix(in srgb, var(--blue) 14%, transparent); }
+  .ico { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; font-family: var(--mono); font-size: .7rem; font-weight: 500; background: var(--ink); color: var(--blue); flex: none; }
+  .t { font-weight: 500; font-size: .8rem; line-height: 1.25; }
+  .s { color: var(--mist-2); font-size: .7rem; }
+  .detail { padding: 1rem 1.1rem 1.25rem; display: grid; gap: .8rem; align-content: start; }
+  h3 { font-size: 1rem; font-weight: 600; }
+  .field { display: grid; gap: .25rem; }
+  .lbl { font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; color: var(--mist-2); }
+  .val { font-family: var(--mono); font-size: .8rem; background: var(--ink); border: 1px solid var(--line-dark); border-radius: 6px; padding: .45rem .6rem; display: flex; justify-content: space-between; align-items: center; gap: .6rem; }
+  .act { color: var(--blue); font-family: var(--font); font-size: .7rem; margin-left: auto; }
+  .code { letter-spacing: .12em; font-size: .95rem; }
+  .ring { width: 16px; height: 16px; border-radius: 50%; background: conic-gradient(var(--blue) 0 62%, var(--line-dark) 62% 100%); flex: none; }
+  .bar-h { height: 5px; border-radius: 3px; background: var(--line-dark); overflow: hidden; }
+  .bar-h i { display: block; height: 100%; width: 88%; background: #7fd962; }
+  small { color: var(--mist-2); font-size: .68rem; }
+  @media (max-width: 560px) { .body { grid-template-columns: 1fr; } .list { border-right: 0; border-bottom: 1px solid var(--line-dark); } }
+</style>

@@ -1,0 +1,188 @@
+---
+import Base from '../layouts/Base.astro';
+import SectionHead from '../components/SectionHead.astro';
+import VaultMock from '../components/VaultMock.astro';
+import FeatureGrid from '../components/FeatureGrid.astro';
+import KeyTree from '../components/KeyTree.astro';
+import PricingTiers from '../components/PricingTiers.astro';
+import Faq from '../components/Faq.astro';
+import Cta from '../components/Cta.astro';
+import { homeFaq } from '../data/faq';
+import { site } from '../data/site';
+---
+<Base title={site.productName}>
+  <header class="band hero">
+    <div class="wrap">
+      <div class="copy">
+        <span class="eyebrow">Open-source password manager</span>
+        <h1 class="display">Your passwords. Your keys. <em>Nobody else's.</em></h1>
+        <p class="lede">Aegis encrypts your vault on your device with a passphrase only you know. We never see it, and neither does anyone else. No account required.</p>
+        <div class="btn-row">
+          <a class="btn btn-primary" href={site.appUrl}>Open the free vault</a>
+          <a class="btn btn-ghost" href="#how">See how it works</a>
+        </div>
+        <p class="note"><span>No install</span><span>Works offline</span><span>{site.license}</span></p>
+      </div>
+      <VaultMock />
+    </div>
+  </header>
+
+  <div class="trust" aria-label="Cryptography used">
+    <div class="wrap">
+      <span>Argon2id KDF</span><span>XChaCha20-Poly1305</span><span>HKDF-SHA256</span><span>Ed25519 signatures</span><span>Zero-knowledge</span><span>Open source</span>
+    </div>
+  </div>
+
+  <section class="section" id="how">
+    <div class="wrap">
+      <SectionHead eyebrow="How it works">Three steps, and the secret never leaves <em>your device.</em></SectionHead>
+      <div class="steps">
+        <div class="step"><span class="n">1</span><h3>Choose a passphrase</h3><p>It never leaves your device. Argon2id (64 MiB, 3 passes) turns it into the key that unwraps your vault's master secret.</p></div>
+        <div class="step"><span class="n">2</span><h3>Everything is sealed locally</h3><p>Passwords, notes and one-time-code seeds are encrypted with XChaCha20-Poly1305 before they touch storage, in a versioned <code>AegisEnvelopeV1</code>.</p></div>
+        <div class="step"><span class="n">3</span><h3>Sync or export, still encrypted</h3><p>Move between devices with an encrypted <code>.aegis</code> file, or let sync carry ciphertext that only your devices can open.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap">
+      <SectionHead eyebrow="Everything you expect">A complete vault, <em>without the account.</em></SectionHead>
+      <FeatureGrid />
+    </div>
+  </section>
+
+  <section class="section security" id="security">
+    <div class="wrap">
+      <div>
+        <SectionHead eyebrow="Security" dark>We published the threat model, <em>not a badge.</em></SectionHead>
+        <p class="lede">One passphrase derives every key you own. Passphrase changes re-wrap the master secret, so the vault is never re-encrypted in the clear, and the sync identity is a signing key that only an unlocked vault can produce.</p>
+        <ul>
+          <li>Client-side WASM cryptography, auditable in the open</li>
+          <li>Sync relays and contracts see ciphertext only, never plaintext</li>
+          <li>The threat model names what we protect, and what we do not</li>
+          <li>Responsible disclosure policy and security.txt</li>
+        </ul>
+        <a class="btn btn-ghost" href="/security">Read the security overview</a>
+      </div>
+      <KeyTree />
+    </div>
+  </section>
+
+  <section class="section" id="who">
+    <div class="wrap">
+      <SectionHead eyebrow="Who it's for">One guarantee, for one person <em>or a whole company.</em></SectionHead>
+      <div class="split">
+        <div class="plan-card">
+          <span class="eyebrow">Personal · Family</span>
+          <h3>Privacy that doesn't need an account.</h3>
+          <ul>
+            <li>Free browser vault with every feature, forever</li>
+            <li>Hosted encrypted sync and backup on the Personal plan</li>
+            <li>Family vault for up to six people</li>
+            <li>Import from 1Password, Bitwarden and LastPass</li>
+          </ul>
+          <a class="btn btn-accent" href="/personal">Explore Personal</a>
+        </div>
+        <div class="plan-card">
+          <span class="eyebrow">Teams · Enterprise</span>
+          <h3>Zero-knowledge for the whole team.</h3>
+          <ul>
+            <li>Shared collections with role-based access</li>
+            <li>Admin console, passphrase policy, audit log export</li>
+            <li>SSO and SCIM, dedicated tenant or self-hosted</li>
+            <li>Support SLA, DPA and a named contact</li>
+          </ul>
+          <a class="btn btn-outline" href="/business">Explore Business</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="pricing">
+    <div class="wrap">
+      <SectionHead eyebrow="Pricing">Start free. Pay when you need <em>sync or a team.</em></SectionHead>
+      <PricingTiers />
+      <p class="foot">Prices in USD. Education and non-profit discounts available. Free stays free: it is the same open-source vault, with nothing held back. <a href="/pricing">Compare every plan</a></p>
+    </div>
+  </section>
+
+  <section class="section oss">
+    <div class="wrap">
+      <div>
+        <SectionHead eyebrow="Open source" class="tight">Don't trust us. <em>Read the source.</em></SectionHead>
+        <p class="lede">The vault, the cryptography, the sync contract and the threat model are public under MIT and Apache-2.0. Build it yourself and compare the hashes we publish with every release.</p>
+        <div class="btn-row" style="margin-top:1.75rem">
+          <a class="btn btn-accent" href={site.repoUrl}>View on GitHub</a>
+          <a class="btn btn-outline" href="/download#verify">Verify a build</a>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><b>{site.license}</b><span>Dual licence</span></div>
+        <div class="stat"><b>{site.latestRelease}</b><span>Latest release</span></div>
+        <div class="stat"><b>Rust → WASM</b><span>Crypto core</span></div>
+        <div class="stat"><b>blake3 hashes</b><span>Published per build</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:0">
+    <div class="wrap">
+      <SectionHead eyebrow="Questions">Answered <em>plainly.</em></SectionHead>
+      <Faq items={homeFaq} />
+    </div>
+  </section>
+
+  <Cta />
+</Base>
+
+<style>
+  .hero { padding: 5.5rem 0 0; overflow: hidden; }
+  .hero .wrap { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 3rem; align-items: center; }
+  .copy { padding-bottom: 5rem; display: grid; gap: 1.5rem; justify-items: start; }
+  .copy .eyebrow { color: var(--blue); }
+  h1 { font-size: clamp(2.75rem, 6vw, 4.25rem); }
+  h1 em { color: var(--blue); }
+  .hero .lede { color: var(--mist-2); }
+  .note { font-size: .85rem; color: var(--mist-2); margin-top: -.5rem; }
+  .note span + span::before { content: "·"; margin: 0 .5rem; }
+
+  .trust { border-bottom: 1px solid var(--line); background: var(--bg-2); }
+  .trust .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem 2rem; padding: 1.1rem 0; font-family: var(--mono); font-size: .74rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .trust span::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: .6rem; vertical-align: 2px; }
+
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+  .step { display: grid; gap: .8rem; padding-top: 1.25rem; border-top: 1px solid var(--line); align-content: start; }
+  .step .n { font-family: var(--display); font-size: 2rem; line-height: 1; color: var(--accent); }
+  .step h3 { font-size: 1.1rem; font-weight: 600; }
+  .step p { color: var(--text-2); font-size: .95rem; }
+  .step code { font-family: var(--mono); font-size: .82em; color: var(--text); background: var(--bg-2); padding: .1em .35em; border-radius: 4px; }
+
+  .security { background: var(--ink); color: var(--mist); border-block: 1px solid var(--line-dark); }
+  .security .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 4rem; align-items: center; }
+  .security :global(.section-head) { margin-bottom: 1.5rem; }
+  .security :global(.display em) { color: var(--blue); }
+  .security .lede { color: var(--mist-2); }
+  .security ul { list-style: none; padding: 0; margin: 1.5rem 0 2rem; display: grid; gap: .7rem; color: var(--mist-2); font-size: .95rem; }
+  .security li::before { content: "\2713"; color: var(--blue); margin-right: .7rem; font-weight: 600; }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  .plan-card { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); padding: 2.25rem; display: grid; gap: 1rem; align-content: start; }
+  .plan-card h3 { font-family: var(--display); font-size: 2rem; font-weight: 400; letter-spacing: -.02em; }
+  .plan-card ul { margin: .25rem 0 .75rem; padding-left: 1.1rem; color: var(--text-2); font-size: .95rem; display: grid; gap: .35rem; }
+  .plan-card .btn { justify-self: start; }
+
+  .foot { margin-top: 1.5rem; font-size: .85rem; color: var(--muted); }
+  .foot a { color: var(--accent); }
+
+  .oss .wrap { display: grid; grid-template-columns: 1.2fr 1fr; gap: 4rem; align-items: center; }
+  .oss :global(.tight) { margin-bottom: 1.25rem; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .stat { background: var(--surface); padding: 1.4rem; display: grid; gap: .25rem; }
+  .stat b { font-family: var(--mono); font-weight: 500; font-size: 1.05rem; }
+  .stat span { font-size: .8rem; color: var(--muted); }
+
+  @media (max-width: 900px) {
+    .hero .wrap, .security .wrap, .oss .wrap, .split, .steps { grid-template-columns: 1fr; }
+    .copy { padding-bottom: 3rem; }
+  }
+</style>

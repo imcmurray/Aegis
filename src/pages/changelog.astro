@@ -1,0 +1,33 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHero from '../components/PageHero.astro';
+import { releases } from '../data/changelog';
+import { site } from '../data/site';
+---
+<Base title="Changelog" description="Release notes for Aegis.">
+  <PageHero eyebrow="Changelog" title="What <em>changed.</em>" lede="Release notes for the vault. The full history is in CHANGELOG.md on the main branch.">
+    <a class="btn btn-ghost" href={`${site.repoUrl}/blob/main/CHANGELOG.md`}>View on GitHub</a>
+  </PageHero>
+  <section class="section">
+    <div class="wrap-narrow log">
+      {releases.map((r) => (
+        <article>
+          <header>
+            <span class="v">v{r.version}</span>
+            <time datetime={r.date}>{new Date(r.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</time>
+          </header>
+          <h2>{r.title}</h2>
+          <ul>{r.items.map((i) => <li>{i}</li>)}</ul>
+        </article>
+      ))}
+    </div>
+  </section>
+</Base>
+<style>
+  .log { display: grid; gap: 3rem; }
+  article { display: grid; gap: .75rem; padding-top: 2rem; border-top: 1px solid var(--line); }
+  header { display: flex; gap: 1rem; align-items: baseline; font-size: .85rem; color: var(--muted); }
+  .v { font-family: var(--mono); color: var(--accent); font-weight: 500; }
+  h2 { font-family: var(--display); font-size: 1.75rem; font-weight: 400; letter-spacing: -.02em; }
+  ul { margin: 0; padding-left: 1.2rem; color: var(--text-2); display: grid; gap: .4rem; }
+</style>
