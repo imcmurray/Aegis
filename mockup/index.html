@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="author" content="Rinse Repeat Labs">
+<meta name="description" content="Aegis is an open-source, zero-knowledge password manager. Your vault is encrypted on your device with a passphrase only you know.">
+<title>Aegis Vault</title>
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f7f9fc;
+  --bg-2: #eef2f7;
+  --surface: #ffffff;
+  --text: #0f1419;
+  --text-2: #4a5768;
+  --muted: #7b8798;
+  --line: #d9e0ea;
+  --accent: #1f6fc0;
+  --accent-soft: #e4f0fc;
+  --accent-ink: #ffffff;
+  --success: #3f9a4b;
+  /* fixed dark-band tokens: the hero and footer are navy in both themes, like the icon */
+  --ink: #0f1419;
+  --navy: #1a2740;
+  --slate: #1a2332;
+  --line-dark: #2d3a4d;
+  --mist: #e7ecf3;
+  --mist-2: #8b9bb4;
+  --blue: #3d9cf0;
+  --blue-hover: #5aaff5;
+  --shadow: 0 24px 60px -24px rgba(15, 20, 25, .45);
+  --radius: 10px;
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f1419;
+    --bg-2: #141c27;
+    --surface: #1a2332;
+    --text: #e7ecf3;
+    --text-2: #b4c0d0;
+    --muted: #8b9bb4;
+    --line: #2d3a4d;
+    --accent: #3d9cf0;
+    --accent-soft: #16304a;
+    --accent-ink: #0f1419;
+    --success: #7fd962;
+    --shadow: 0 24px 60px -24px rgba(0, 0, 0, .8);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1419;
+  --bg-2: #141c27;
+  --surface: #1a2332;
+  --text: #e7ecf3;
+  --text-2: #b4c0d0;
+  --muted: #8b9bb4;
+  --line: #2d3a4d;
+  --accent: #3d9cf0;
+  --accent-soft: #16304a;
+  --accent-ink: #0f1419;
+  --success: #7fd962;
+  --shadow: 0 24px 60px -24px rgba(0, 0, 0, .8);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 4px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+p { margin: 0; }
+.wrap { width: min(1120px, 100% - 3rem); margin-inline: auto; }
+.eyebrow { font-family: var(--mono); font-size: .75rem; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.display { font-family: var(--display); font-weight: 400; letter-spacing: -.02em; line-height: 1.05; }
+.display em { font-style: italic; color: var(--accent); }
+.lede { font-size: 1.125rem; color: var(--text-2); max-width: 36rem; }
+.btn { display: inline-flex; align-items: center; gap: .5rem; padding: .8rem 1.25rem; border-radius: 8px; font-weight: 500; font-size: .95rem; border: 1px solid transparent; transition: background .2s, border-color .2s, color .2s; cursor: pointer; font-family: inherit; }
+.btn-primary { background: var(--blue); color: var(--ink); }
+.btn-primary:hover { background: var(--blue-hover); }
+.btn-ghost { border-color: var(--line-dark); color: var(--mist); }
+.btn-ghost:hover { border-color: var(--mist-2); }
+.btn-outline { border-color: var(--line); color: var(--text); background: var(--surface); }
+.btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+.btn-accent { background: var(--accent); color: var(--accent-ink); }
+.btn-accent:hover { filter: brightness(1.08); }
+.section { padding: 6rem 0; }
+.section-head { display: grid; gap: .9rem; max-width: 40rem; margin-bottom: 3rem; }
+.section-head h2 { font-size: clamp(2rem, 4vw, 2.75rem); }
+
+/* ---------- dark band (hero + footer) ---------- */
+.band { background: linear-gradient(160deg, var(--navy) 0%, var(--ink) 70%); color: var(--mist); }
+
+/* ---------- nav ---------- */
+.nav { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); background: color-mix(in srgb, var(--ink) 78%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--mist) 8%, transparent); }
+.nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 2rem; }
+.brand { display: inline-flex; align-items: center; gap: .55rem; font-weight: 600; letter-spacing: -.02em; font-size: 1.05rem; color: var(--mist); }
+.brand svg { width: 26px; height: 26px; border-radius: 6px; }
+.nav-links { display: flex; gap: 1.75rem; font-size: .92rem; color: var(--mist-2); }
+.nav-links a:hover { color: var(--mist); }
+.nav-cta { display: flex; align-items: center; gap: 1.25rem; font-size: .92rem; }
+.nav-cta .login { color: var(--mist-2); }
+.nav-cta .btn { padding: .55rem 1rem; font-size: .88rem; }
+
+/* ---------- hero ---------- */
+.hero { padding: 5.5rem 0 0; overflow: hidden; }
+.hero .wrap { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 3rem; align-items: center; }
+.hero h1 { font-size: clamp(2.75rem, 6vw, 4.25rem); margin: 1rem 0 1.5rem; }
+.hero h1 em { color: var(--blue); }
+.hero .lede { color: var(--mist-2); margin-bottom: 2rem; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+.hero-note { margin-top: 1.25rem; font-size: .85rem; color: var(--mist-2); }
+.hero-note span + span::before { content: "·"; margin: 0 .5rem; }
+.hero-copy { padding-bottom: 5rem; }
+
+/* vault mock */
+.frame { position: relative; align-self: end; margin-bottom: -2px; }
+.vault { background: var(--slate); border: 1px solid var(--line-dark); border-bottom: 0; border-radius: 14px 14px 0 0; box-shadow: var(--shadow); color: var(--mist); font-size: .85rem; overflow: hidden; }
+.vault-bar { display: flex; align-items: center; gap: .5rem; padding: .7rem 1rem; border-bottom: 1px solid var(--line-dark); background: color-mix(in srgb, var(--ink) 60%, var(--slate)); }
+.vault-bar .dots { display: flex; gap: 5px; }
+.vault-bar .dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--line-dark); display: block; }
+.vault-bar .url { flex: 1; text-align: center; font-family: var(--mono); font-size: .72rem; color: var(--mist-2); }
+.vault-head { display: flex; align-items: center; justify-content: space-between; padding: .9rem 1.1rem .6rem; }
+.vault-head .brand { font-size: .95rem; }
+.chip { font-family: var(--mono); font-size: .66rem; letter-spacing: .04em; padding: .2rem .55rem; border-radius: 999px; border: 1px solid var(--line-dark); color: var(--mist-2); }
+.chip.on { border-color: color-mix(in srgb, #7fd962 45%, var(--line-dark)); color: #9fe58a; background: color-mix(in srgb, #7fd962 12%, transparent); }
+.vault-body { display: grid; grid-template-columns: 1fr 1.25fr; }
+.vault-list { border-right: 1px solid var(--line-dark); padding: .5rem .6rem 1rem; }
+.search { font-size: .78rem; color: var(--mist-2); background: var(--ink); border: 1px solid var(--line-dark); border-radius: 7px; padding: .45rem .7rem; margin: .3rem .3rem .6rem; }
+.entry { display: flex; align-items: center; gap: .6rem; padding: .5rem .6rem; border-radius: 7px; }
+.entry.active { background: color-mix(in srgb, var(--blue) 14%, transparent); }
+.entry .ico { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; font-family: var(--mono); font-size: .7rem; font-weight: 500; background: var(--ink); color: var(--blue); flex: none; }
+.entry .t { font-weight: 500; font-size: .8rem; line-height: 1.25; }
+.entry .s { color: var(--mist-2); font-size: .7rem; }
+.vault-detail { padding: 1rem 1.1rem 1.25rem; display: grid; gap: .8rem; align-content: start; }
+.vault-detail h3 { font-size: 1rem; font-weight: 600; }
+.field { display: grid; gap: .2rem; }
+.field label { font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; color: var(--mist-2); }
+.field .val { font-family: var(--mono); font-size: .8rem; background: var(--ink); border: 1px solid var(--line-dark); border-radius: 6px; padding: .45rem .6rem; display: flex; justify-content: space-between; align-items: center; }
+.field .val .act { color: var(--blue); font-family: var(--font); font-size: .7rem; }
+.totp { display: flex; align-items: center; gap: .6rem; }
+.totp .code { letter-spacing: .12em; font-size: .95rem; }
+.ring { width: 16px; height: 16px; border-radius: 50%; background: conic-gradient(var(--blue) 0 62%, var(--line-dark) 62% 100%); }
+.health { display: grid; gap: .3rem; }
+.health .bar { height: 5px; border-radius: 3px; background: var(--line-dark); overflow: hidden; }
+.health .bar i { display: block; height: 100%; width: 88%; background: #7fd962; }
+.health small { color: var(--mist-2); font-size: .68rem; }
+
+/* ---------- trust bar ---------- */
+.trust { border-bottom: 1px solid var(--line); background: var(--bg-2); }
+.trust .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem 2rem; padding: 1.1rem 0; font-family: var(--mono); font-size: .74rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.trust span::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: .6rem; vertical-align: 2px; }
+
+/* ---------- how it works ---------- */
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+.step { display: grid; gap: .8rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+.step .n { font-family: var(--display); font-size: 2rem; line-height: 1; color: var(--accent); }
+.step h3 { font-size: 1.1rem; font-weight: 600; }
+.step p { color: var(--text-2); font-size: .95rem; }
+.step code { font-family: var(--mono); font-size: .82em; color: var(--text); background: var(--bg-2); padding: .1em .35em; border-radius: 4px; }
+
+/* ---------- features ---------- */
+.features { background: var(--bg-2); border-block: 1px solid var(--line); }
+.feat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.feat { background: var(--surface); padding: 1.5rem; display: grid; gap: .5rem; align-content: start; }
+.feat svg { width: 22px; height: 22px; color: var(--accent); }
+.feat h3 { font-size: .98rem; font-weight: 600; }
+.feat p { font-size: .88rem; color: var(--text-2); }
+
+/* ---------- security band ---------- */
+.security { background: var(--ink); color: var(--mist); border-block: 1px solid var(--line-dark); }
+.security .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 4rem; align-items: center; }
+.security .section-head { margin-bottom: 1.5rem; }
+.security .lede { color: var(--mist-2); }
+.security ul { list-style: none; padding: 0; margin: 1.5rem 0 2rem; display: grid; gap: .7rem; color: var(--mist-2); font-size: .95rem; }
+.security li::before { content: "✓"; color: var(--blue); margin-right: .7rem; font-weight: 600; }
+.keytree { font-family: var(--mono); font-size: .8rem; display: grid; gap: 0; }
+.kn { display: flex; align-items: center; gap: .9rem; }
+.kn .box { border: 1px solid var(--line-dark); background: var(--slate); border-radius: 7px; padding: .55rem .8rem; color: var(--mist); }
+.kn .box.root { border-color: color-mix(in srgb, var(--blue) 60%, var(--line-dark)); color: var(--blue); }
+.kn .note { color: var(--mist-2); font-size: .72rem; font-family: var(--font); }
+.kedge { height: 22px; width: 1px; background: var(--line-dark); margin-left: 1.25rem; position: relative; }
+.kedge span { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); white-space: nowrap; font-size: .7rem; color: var(--mist-2); }
+.kleaves { display: grid; gap: .45rem; padding-left: 1.25rem; border-left: 1px solid var(--line-dark); margin-left: 1.25rem; }
+.kleaves .kn { position: relative; }
+.kleaves .kn::before { content: ""; position: absolute; left: -1.25rem; top: 50%; width: 1rem; height: 1px; background: var(--line-dark); }
+
+/* ---------- split ---------- */
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+.plan-card { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); padding: 2.25rem; display: grid; gap: 1rem; align-content: start; }
+.plan-card h3 { font-family: var(--display); font-size: 2rem; font-weight: 400; letter-spacing: -.02em; }
+.plan-card ul { margin: .25rem 0 .75rem; padding-left: 1.1rem; color: var(--text-2); font-size: .95rem; display: grid; gap: .35rem; }
+.plan-card .btn { justify-self: start; }
+
+/* ---------- pricing ---------- */
+.pricing { background: var(--bg-2); border-block: 1px solid var(--line); }
+.tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; align-items: stretch; }
+.tier { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.6rem; display: grid; gap: .75rem; align-content: start; position: relative; }
+.tier.hi { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.tier .tag { position: absolute; top: -.7rem; left: 1.4rem; font-family: var(--mono); font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; background: var(--accent); color: var(--accent-ink); padding: .2rem .55rem; border-radius: 999px; }
+.tier h3 { font-size: 1rem; font-weight: 600; }
+.tier .price { font-family: var(--display); font-size: 2.4rem; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.tier .price small { font-family: var(--font); font-size: .85rem; color: var(--muted); letter-spacing: 0; margin-left: .25rem; }
+.tier .per { font-size: .8rem; color: var(--muted); margin-top: -.5rem; }
+.tier ul { list-style: none; padding: 0; margin: .5rem 0 .75rem; display: grid; gap: .4rem; font-size: .88rem; color: var(--text-2); }
+.tier li::before { content: "—"; color: var(--accent); margin-right: .5rem; }
+.tier .btn { justify-self: stretch; justify-content: center; }
+.pricing-foot { margin-top: 1.5rem; font-size: .85rem; color: var(--muted); }
+
+/* ---------- open source ---------- */
+.oss .wrap { display: grid; grid-template-columns: 1.2fr 1fr; gap: 4rem; align-items: center; }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.stat { background: var(--surface); padding: 1.4rem; display: grid; gap: .25rem; }
+.stat b { font-family: var(--mono); font-weight: 500; font-size: 1.05rem; }
+.stat span { font-size: .8rem; color: var(--muted); }
+
+/* ---------- faq ---------- */
+.faq { max-width: 44rem; }
+.faq details { border-top: 1px solid var(--line); }
+.faq details:last-child { border-bottom: 1px solid var(--line); }
+.faq summary { cursor: pointer; list-style: none; padding: 1.1rem 0; font-weight: 500; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; font-family: var(--mono); color: var(--accent); font-size: 1.1rem; }
+.faq details[open] summary::after { content: "–"; }
+.faq details p { padding: 0 0 1.25rem; color: var(--text-2); max-width: 40rem; }
+
+/* ---------- final cta ---------- */
+.final { text-align: left; padding: 5rem 0; }
+.final .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 2rem; }
+.final h2 { font-size: clamp(2rem, 4vw, 2.75rem); max-width: 30rem; }
+.final h2 em { color: var(--blue); }
+
+/* ---------- footer ---------- */
+footer { background: var(--ink); color: var(--mist-2); border-top: 1px solid var(--line-dark); font-size: .88rem; }
+.foot-grid { display: grid; grid-template-columns: 1.4fr repeat(4, 1fr); gap: 2rem; padding: 3.5rem 0 2.5rem; }
+.foot-grid h4 { margin: 0 0 .9rem; font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--mist); font-weight: 600; }
+.foot-grid ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .45rem; }
+.foot-grid a:hover { color: var(--mist); }
+.foot-brand p { max-width: 20rem; margin-top: .75rem; }
+.foot-bottom { border-top: 1px solid var(--line-dark); padding: 1.4rem 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; align-items: center; font-size: .82rem; }
+.rrl { display: inline-flex; align-items: center; gap: .5rem; color: var(--mist-2); }
+.rrl a { color: var(--mist); border-bottom: 1px solid var(--line-dark); transition: border-color .2s; }
+.rrl a:hover { border-color: var(--blue); }
+.foot-meta { display: flex; gap: 1.25rem; align-items: center; }
+.status { display: inline-flex; align-items: center; gap: .4rem; }
+.status i { width: 7px; height: 7px; border-radius: 50%; background: #7fd962; display: inline-block; }
+
+@media (max-width: 900px) {
+  .nav-links, .nav-cta .login { display: none; }
+  .hero .wrap, .security .wrap, .oss .wrap, .split { grid-template-columns: 1fr; }
+  .hero-copy { padding-bottom: 3rem; }
+  .steps { grid-template-columns: 1fr; }
+  .feat-grid { grid-template-columns: 1fr 1fr; }
+  .tiers { grid-template-columns: 1fr 1fr; }
+  .foot-grid { grid-template-columns: 1fr 1fr; }
+  .section { padding: 4rem 0; }
+}
+@media (max-width: 560px) {
+  .feat-grid, .tiers, .foot-grid, .vault-body { grid-template-columns: 1fr; }
+  .vault-list { border-right: 0; border-bottom: 1px solid var(--line-dark); }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .btn { transition: none; } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="aegis-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a2740"/><stop offset="1" stop-color="#0f1419"/></linearGradient>
+    <symbol id="aegis-mark" viewBox="0 0 512 512">
+      <rect width="512" height="512" rx="116" fill="url(#aegis-bg)"/>
+      <g transform="translate(32 462) scale(0.43)" fill="#3d9cf0"><path d="M480-480Zm-7 435Q324-83 225-217.44 126-351.87 126-516v-267.46L480-915l354 131.54V-516q0 6-.5 12.5T833-491H707q1-6 1-12.33v-192.19L480-781l-228 85.48V-516q0 114 63 205.5T473-178v133Zm195-1v-120H548v-126h120v-120h126v120h120v126H794v120H668ZM411-352h138l-24-133q20-12 31.5-32t11.5-43q0-37-25.5-62.5T480-648q-37 0-62.5 25.5T392-560q0 23 11.5 43t31.5 32l-24 133Z"/></g>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="band">
+  <nav class="nav" aria-label="Primary">
+    <div class="wrap">
+      <a class="brand" href="#"><svg><use href="#aegis-mark"/></svg>Aegis</a>
+      <div class="nav-links">
+        <a href="#personal">Personal</a><a href="#business">Business</a><a href="#pricing">Pricing</a><a href="#security">Security</a><a href="#">Docs</a>
+      </div>
+      <div class="nav-cta">
+        <a class="login" href="#">Log in</a>
+        <a class="btn btn-primary" href="#">Open vault</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="wrap">
+      <div class="hero-copy">
+        <span class="eyebrow" style="color:var(--blue)">Open-source password manager</span>
+        <h1 class="display">Your passwords. Your keys. <em>Nobody else's.</em></h1>
+        <p class="lede">Aegis encrypts your vault on your device with a passphrase only you know. We never see it, and neither does anyone else. No account required.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#">Open the free vault</a>
+          <a class="btn btn-ghost" href="#how">See how it works</a>
+        </div>
+        <p class="hero-note"><span>No install</span><span>Works offline</span><span>MIT / Apache-2.0</span></p>
+      </div>
+
+      <div class="frame" aria-label="Aegis vault, example data">
+        <div class="vault">
+          <div class="vault-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">vault.aegis.app</div></div>
+          <div class="vault-head">
+            <span class="brand"><svg><use href="#aegis-mark"/></svg>Aegis</span>
+            <span style="display:flex;gap:.4rem"><span class="chip on">unlocked</span><span class="chip">browser vault</span></span>
+          </div>
+          <div class="vault-body">
+            <div class="vault-list">
+              <div class="search">Search 214 entries…</div>
+              <div class="entry active"><div class="ico">GH</div><div><div class="t">GitHub</div><div class="s">ian@rinserepeatlabs.com</div></div></div>
+              <div class="entry"><div class="ico">FS</div><div><div class="t">Fastmail</div><div class="s">Work · 2FA</div></div></div>
+              <div class="entry"><div class="ico">CU</div><div><div class="t">Credit union</div><div class="s">Finance</div></div></div>
+              <div class="entry"><div class="ico">CF</div><div><div class="t">Cloudflare</div><div class="s">Infrastructure · 2FA</div></div></div>
+              <div class="entry"><div class="ico">ST</div><div><div class="t">Stripe</div><div class="s">Finance</div></div></div>
+            </div>
+            <div class="vault-detail">
+              <h3>GitHub</h3>
+              <div class="field"><label>Username</label><div class="val">ian@rinserepeatlabs.com <span class="act">Copy</span></div></div>
+              <div class="field"><label>Password</label><div class="val">••••••••••••••••••••<span class="act">Reveal</span></div></div>
+              <div class="field"><label>One-time code</label><div class="val totp"><span class="code">482 913</span><span class="ring" aria-hidden="true"></span><span class="act" style="margin-left:auto">Copy</span></div></div>
+              <div class="health"><span style="font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;color:var(--mist-2)">Password health</span><div class="bar"><i></i></div><small>Strong · unique · last changed 41 days ago</small></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+</div>
+
+<div class="trust" aria-label="Cryptography used">
+  <div class="wrap">
+    <span>Argon2id KDF</span><span>XChaCha20-Poly1305</span><span>HKDF-SHA256</span><span>Ed25519 signatures</span><span>Zero-knowledge</span><span>Open source</span>
+  </div>
+</div>
+
+<section class="section" id="how">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">How it works</span>
+      <h2 class="display">Three steps, and the secret never leaves <em>your device.</em></h2>
+    </div>
+    <div class="steps">
+      <div class="step"><span class="n">1</span><h3>Choose a passphrase</h3><p>It never leaves your device. Argon2id (64 MiB, 3 passes) turns it into the key that unwraps your vault's master secret.</p></div>
+      <div class="step"><span class="n">2</span><h3>Everything is sealed locally</h3><p>Passwords, notes and one-time-code seeds are encrypted with XChaCha20-Poly1305 before they touch storage, in a versioned <code>AegisEnvelopeV1</code>.</p></div>
+      <div class="step"><span class="n">3</span><h3>Sync or export, still encrypted</h3><p>Move between devices with an encrypted <code>.aegis</code> file, or let sync carry ciphertext that only your devices can open.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="section features">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Everything you expect</span>
+      <h2 class="display">A complete vault, <em>without the account.</em></h2>
+    </div>
+    <div class="feat-grid">
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 13h4"/></svg><h3>Logins, notes, folders</h3><p>Entries with URLs, usernames, custom fields and labels, organised the way you think.</p></div>
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><h3>One-time codes</h3><p>TOTP lives next to the password it protects, so two-factor is one copy away.</p></div>
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 19h16M6 15l4-6 4 4 4-7"/></svg><h3>Password health</h3><p>Weak, reused and old passwords surfaced in one view, without sending anything anywhere.</p></div>
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 12h16M12 4v16"/><circle cx="12" cy="12" r="9"/></svg><h3>Generator</h3><p>Long, random, memorable or strict: passwords tuned to what the site will accept.</p></div>
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg><h3>Recovery key</h3><p>Generate one, store it offline, and a forgotten passphrase is no longer the end.</p></div>
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 4v11M8 11l4 4 4-4M4 19h16"/></svg><h3>Encrypted export</h3><p>Backups are sealed the same way as the vault. Restore in any browser, or replace a stale copy after a preview.</p></div>
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="12" height="9" rx="1.5"/><rect x="13" y="10" width="8" height="10" rx="1.5"/></svg><h3>Multi-device</h3><p>Encrypted sync across devices, signed with a key only an unlocked vault can produce.</p></div>
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 12a7 7 0 0114 0v5H5z"/><path d="M9 21h6"/></svg><h3>Works offline</h3><p>The vault is yours in the browser, on a plane, or on a machine that never touches the internet.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="section security" id="security">
+  <div class="wrap">
+    <div>
+      <div class="section-head">
+        <span class="eyebrow" style="color:var(--blue)">Security</span>
+        <h2 class="display">We published the threat model, <em style="color:var(--blue)">not a badge.</em></h2>
+      </div>
+      <p class="lede">One passphrase derives every key you own. Passphrase changes re-wrap the master secret, so the vault is never re-encrypted in the clear, and the sync identity is a signing key that only an unlocked vault can produce.</p>
+      <ul>
+        <li>Client-side WASM cryptography, auditable in the open</li>
+        <li>Sync relays and contracts see ciphertext only, never plaintext</li>
+        <li>Threat model names what we protect, and what we do not</li>
+        <li>Responsible disclosure policy and security.txt</li>
+      </ul>
+      <a class="btn btn-ghost" href="#">Read the security overview</a>
+    </div>
+    <div class="keytree" aria-label="Key hierarchy">
+      <div class="kn"><span class="box root">Master passphrase</span><span class="note">never stored</span></div>
+      <div class="kedge"><span>Argon2id(salt, params) → KEK</span></div>
+      <div class="kn"><span class="box">MasterSecret · 32 B</span><span class="note">wrapped by KEK, optionally by recovery key</span></div>
+      <div class="kedge"><span>HKDF-SHA256, domain-separated</span></div>
+      <div class="kleaves">
+        <div class="kn"><span class="box">aegis/v1/vault-dek</span><span class="note">seals the vault</span></div>
+        <div class="kn"><span class="box">aegis/v1/sync-sign</span><span class="note">Ed25519 owner identity</span></div>
+        <div class="kn"><span class="box">aegis/v1/sync-addr</span><span class="note">non-enumerable sync address</span></div>
+        <div class="kn"><span class="box">aegis/v1/share-ecdh</span><span class="note">X25519, sharing (planned)</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="personal">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Who it's for</span>
+      <h2 class="display">One guarantee, for one person <em>or a whole company.</em></h2>
+    </div>
+    <div class="split">
+      <div class="plan-card">
+        <span class="eyebrow">Personal · Family</span>
+        <h3>Privacy that doesn't need an account.</h3>
+        <ul>
+          <li>Free browser vault with every feature, forever</li>
+          <li>Hosted encrypted sync and backup on the Personal plan</li>
+          <li>Family vault for up to six people</li>
+          <li>Import from 1Password, Bitwarden and LastPass</li>
+        </ul>
+        <a class="btn btn-accent" href="#">Explore Personal</a>
+      </div>
+      <div class="plan-card" id="business">
+        <span class="eyebrow">Teams · Enterprise</span>
+        <h3>Zero-knowledge for the whole team.</h3>
+        <ul>
+          <li>Shared collections with role-based access</li>
+          <li>Admin console, passphrase policy, audit log export</li>
+          <li>SSO and SCIM, dedicated tenant or self-hosted</li>
+          <li>Support SLA, DPA and a named contact</li>
+        </ul>
+        <a class="btn btn-outline" href="#">Talk to sales</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section pricing" id="pricing">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Pricing</span>
+      <h2 class="display">Start free. Pay when you need <em>sync or a team.</em></h2>
+    </div>
+    <div class="tiers">
+      <div class="tier"><h3>Free</h3><div class="price">$0</div><div class="per">forever, no account</div>
+        <ul><li>Browser vault, unlimited entries</li><li>TOTP, generator, health</li><li>Encrypted export and import</li><li>Self-host the static build</li></ul>
+        <a class="btn btn-outline" href="#">Open vault</a></div>
+      <div class="tier hi"><span class="tag">Most popular</span><h3>Personal</h3><div class="price">$29<small>/ year</small></div><div class="per">or $2.99 a month</div>
+        <ul><li>Everything in Free</li><li>Encrypted sync across devices</li><li>Encrypted cloud backup</li><li>Email support, 2 business days</li></ul>
+        <a class="btn btn-accent" href="#">Start Personal</a></div>
+      <div class="tier"><h3>Teams</h3><div class="price">$4<small>/ user / mo</small></div><div class="per">billed annually</div>
+        <ul><li>Shared collections and roles</li><li>Admin console</li><li>Audit log export</li><li>Priority support, 1 business day</li></ul>
+        <a class="btn btn-outline" href="#">Join early access</a></div>
+      <div class="tier"><h3>Enterprise</h3><div class="price">Custom</div><div class="per">annual agreement</div>
+        <ul><li>SSO / SCIM and policy enforcement</li><li>Dedicated tenant or self-host</li><li>DPA and uptime SLA</li><li>Named support contact</li></ul>
+        <a class="btn btn-outline" href="#">Talk to sales</a></div>
+    </div>
+    <p class="pricing-foot">Prices in USD. Education and non-profit discounts available. Free stays free: it is the same open-source vault, with nothing held back.</p>
+  </div>
+</section>
+
+<section class="section oss">
+  <div class="wrap">
+    <div>
+      <div class="section-head" style="margin-bottom:1.25rem">
+        <span class="eyebrow">Open source</span>
+        <h2 class="display">Don't trust us. <em>Read the source.</em></h2>
+      </div>
+      <p class="lede">The vault, the cryptography, the sync contract and the threat model are public under MIT and Apache-2.0. Build it yourself and compare the hashes we publish with every release.</p>
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1.75rem">
+        <a class="btn btn-accent" href="https://github.com/imcmurray/Aegis">View on GitHub</a>
+        <a class="btn btn-outline" href="#">Verify a build</a>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>MIT / Apache-2.0</b><span>Dual licence</span></div>
+      <div class="stat"><b>v0.1.1</b><span>Latest release</span></div>
+      <div class="stat"><b>Rust → WASM</b><span>Crypto core</span></div>
+      <div class="stat"><b>blake3 hashes</b><span>Published per build</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="padding-top:0">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Questions</span><h2 class="display">Answered <em>plainly.</em></h2></div>
+    <div class="faq">
+      <details open><summary>Can Rinse Repeat Labs read my passwords?</summary><p>No. Encryption and decryption happen on your device, in your browser. Our servers only ever hold ciphertext, and the key that opens it is derived from a passphrase we never receive.</p></details>
+      <details><summary>What if I forget my passphrase?</summary><p>Generate a recovery key in settings and store it offline. Without the passphrase or the recovery key the vault cannot be opened, by anyone, by design.</p></details>
+      <details><summary>Do I need an account?</summary><p>Not for the free vault. A billing account is only needed for paid sync and team features, and it never holds the key to your vault.</p></details>
+      <details><summary>Is it really open source?</summary><p>Yes, MIT or Apache-2.0, your choice. The browser vault, the crypto core, the sync contract and the documentation are all in the public repository.</p></details>
+      <details><summary>What is Freenet mode?</summary><p>An optional, experimental way to sync over a decentralised network with no relay at all. Most people should use the default browser vault and Personal sync.</p></details>
+      <details><summary>Has Aegis been independently audited?</summary><p>Not yet. The threat model and cryptography are published for review now, and an independent audit is planned before Teams leaves early access. We will link the report here when it exists.</p></details>
+    </div>
+  </div>
+</section>
+
+<div class="band final">
+  <div class="wrap">
+    <h2 class="display">Start with the free vault. Upgrade when you need <em>sync or a team.</em></h2>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="#">Open the free vault</a>
+      <a class="btn btn-ghost" href="#pricing">Compare plans</a>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a class="brand" href="#"><svg><use href="#aegis-mark"/></svg>Aegis</a>
+        <p>An open-source, zero-knowledge password manager for people and teams who would rather hold their own keys.</p>
+      </div>
+      <div><h4>Product</h4><ul><li><a href="#personal">Personal</a></li><li><a href="#business">Business</a></li><li><a href="#pricing">Pricing</a></li><li><a href="#">Download</a></li><li><a href="#">Changelog</a></li></ul></div>
+      <div><h4>Resources</h4><ul><li><a href="#">Documentation</a></li><li><a href="#security">Security</a></li><li><a href="#">Blog</a></li><li><a href="https://github.com/imcmurray/Aegis">GitHub</a></li></ul></div>
+      <div><h4>Support</h4><ul><li><a href="#">Help center</a></li><li><a href="#">Contact</a></li><li><a href="#">Status</a></li><li><a href="#">Report a vulnerability</a></li></ul></div>
+      <div><h4>Company</h4><ul><li><a href="#">About</a></li><li><a href="https://RinseRepeatLabs.com/">Rinse Repeat Labs</a></li><li><a href="#">Privacy</a></li><li><a href="#">Terms</a></li></ul></div>
+    </div>
+    <div class="foot-bottom">
+      <span class="rrl">Aegis is another application written by <a href="https://RinseRepeatLabs.com/">Rinse Repeat Labs</a></span>
+      <div class="foot-meta"><span>© 2026 Rinse Repeat Labs</span><span>MIT / Apache-2.0</span><span class="status"><i></i>All systems normal</span></div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
