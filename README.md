@@ -81,6 +81,7 @@ cargo test --workspace
 | [docs/PUBLISH.md](docs/PUBLISH.md) | Freenet web container publish |
 | [docs/VAULTSYNC.md](docs/VAULTSYNC.md) | **Multi-device mesh Sync (owner key identity)** |
 | [docs/DEV.md](docs/DEV.md) | Local development |
+| [`website` branch](../../tree/website) | Commercial website: design plan and homepage mockup (kept separate from product code) |
 
 ## Layout
 
