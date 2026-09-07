@@ -16,7 +16,8 @@
 1. Open the hosted URL (or local serve).
 2. Create a master passphrase when prompted.
 3. Add logins, labels, TOTP, folders.
-4. **Export** encrypted backups regularly.
+4. **Export** encrypted `.aegis` backups regularly (restore creates a **new** vault identity).
+5. Optionally generate a **Recovery Kit** (`.aegis-recovery`) and store its recovery secret **separately**. Kit + secret = control of this vault’s identity. The kit is not a backup of your passwords.
 
 You do **not** need Freenet. See [docs/ACCESS.md](docs/ACCESS.md).
 
@@ -59,7 +60,7 @@ rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.100   # match wasm-bindgen crate if needed
 
 ./scripts/build-wasm.sh
-cd ui && npm install && npm run dev
+cd ui && npm ci && npm run dev
 # http://localhost:5173/  → browser vault
 ```
 
@@ -76,11 +77,16 @@ cargo test --workspace
 | [docs/MODES.md](docs/MODES.md) | Browser / Freenet / dev matrix |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, keys, roadmap |
 | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | Adversaries & guarantees |
-| [docs/CRYPTO.md](docs/CRYPTO.md) | Algorithms |
+| [docs/CRYPTO.md](docs/CRYPTO.md) | Implemented v2 algorithms and workflows |
+| [docs/CRYPTO-V2.md](docs/CRYPTO-V2.md) | v2 cryptographic architecture (security contract) |
+| [docs/CRYPTO-V2-GAP.md](docs/CRYPTO-V2-GAP.md) | v1 vs v2 gap matrix (73 items) |
+| [docs/CRYPTO-V2-DECISIONS.md](docs/CRYPTO-V2-DECISIONS.md) | Frozen v2 decisions (D1–D17) |
+| [docs/THREAT_MODEL-V2-DELTA.md](docs/THREAT_MODEL-V2-DELTA.md) | v1 residuals vs v2 target properties |
 | [docs/FREENET.md](docs/FREENET.md) | Peer + delegate |
 | [docs/PUBLISH.md](docs/PUBLISH.md) | Freenet web container publish |
-| [docs/VAULTSYNC.md](docs/VAULTSYNC.md) | **Multi-device mesh Sync (owner key identity)** |
+| [docs/VAULTSYNC.md](docs/VAULTSYNC.md) | Multi-device mesh Sync (hybrid Ed25519 **and** ML-DSA-65) |
 | [docs/DEV.md](docs/DEV.md) | Local development |
+| [docs/RC-TEST-CHECKLIST.md](docs/RC-TEST-CHECKLIST.md) | Human soak for `v2.0.0-rc.1` (not a security claim) |
 | [`website` branch](../../tree/website) | Commercial website: Astro site and design plan (kept separate from product code) |
 
 ## Layout

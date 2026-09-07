@@ -1,0 +1,6 @@
+# cargo-audit / rustsec CI. Do not ignore a reachable crypto CVE here
+# without an architecture decision.
+[advisories]
+ignore = [
+    "RUSTSEC-2025-0141", # unmaintained bincode, only via freenet-stdlib; Aegis uses ciborium
+]

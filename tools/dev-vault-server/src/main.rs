@@ -20,7 +20,7 @@
 use aegis_common::file_store::FileStore;
 use aegis_common::messages::{VaultRequest, VaultResponse};
 use aegis_common::sync::FileSyncTransport;
-use aegis_common::vault::{dispatch_with_sync, VaultSession};
+use aegis_common::vault::{dispatch_with_sync, ActiveSession};
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{header, Method, StatusCode};
@@ -35,7 +35,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 struct AppState {
     store: FileStore,
-    session: Option<VaultSession>,
+    session: Option<ActiveSession>,
     sync: FileSyncTransport,
     data_dir: PathBuf,
 }
@@ -213,14 +213,23 @@ async fn vault(State(state): State<Shared>, body: Bytes) -> Response {
         VaultRequest::GenerateTotp { .. } => "generate_totp",
         VaultRequest::ExportEncrypted { .. } => "export_encrypted",
         VaultRequest::ImportEncrypted { .. } => "import_encrypted",
+        VaultRequest::PreviewImport { .. } => "preview_import",
         VaultRequest::GetAuditLog { .. } => "get_audit_log",
         VaultRequest::SyncNow => "sync_now",
         VaultRequest::SyncWithRemote { .. } => "sync_with_remote",
         VaultRequest::ChangePassphrase { .. } => "change_passphrase",
         VaultRequest::PasswordHealth => "password_health",
         VaultRequest::GenerateRecoveryKey { .. } => "generate_recovery_key",
+        VaultRequest::ExportRecoveryKit => "export_recovery_kit",
+        VaultRequest::ImportRecoveryKit { .. } => "import_recovery_kit",
         VaultRequest::UnlockWithRecovery { .. } => "unlock_with_recovery",
         VaultRequest::RevokeRecoveryKey => "revoke_recovery_key",
+        VaultRequest::MigrateVault { .. } => "migrate_vault",
+        VaultRequest::MigrateVaultWithRecovery { .. } => "migrate_vault_with_recovery",
+        VaultRequest::RotateKeys { .. } => "rotate_keys",
+        VaultRequest::ExportShareIdentity => "export_share_identity",
+        VaultRequest::CreateShare { .. } => "create_share",
+        VaultRequest::OpenShare { .. } => "open_share",
     };
     tracing::info!(op, "vault request");
 

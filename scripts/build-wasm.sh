@@ -28,7 +28,7 @@ if command -v wasm-bindgen >/dev/null 2>&1; then
     "$OUT/aegis_browser_wasm.wasm"
 else
   echo "warning: wasm-bindgen not on PATH — browser mode will fail until installed" >&2
-  echo "  cargo install wasm-bindgen-cli --version 0.2.100" >&2
+  echo "  cargo install wasm-bindgen-cli --version 0.2.126 --locked" >&2
 fi
 
 # Write blake3 + base58 of WASM for Freenet registration / VaultSync instance ids.

@@ -4,11 +4,15 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Shared types, crypto, and vault logic for Aegis"
+autotests = false
 
 [features]
 default = []
 # Freenet contracts/delegates: host RNG + time via freenet-stdlib.
 freenet-host = ["dep:freenet-stdlib", "getrandom/custom"]
+# Frozen v1 fixture regen / compatibility helpers. Not a production path.
+# Enables VaultSession::create, import_bundle, and try_resume outside unit tests.
+v1-fixtures = []
 
 [dependencies]
 serde = { workspace = true }
@@ -29,9 +33,18 @@ bs58 = { workspace = true }
 getrandom = "0.2"
 hmac = "0.12"
 sha1 = "0.10"
+ml-dsa = { workspace = true }
+ml-kem = { workspace = true }
 freenet-stdlib = { workspace = true, features = ["contract"], optional = true }
 
 # Browser WASM (no freenet-host): WebCrypto getrandom + js-sys time.
+# ml-dsa 0.1.1 default features pull getrandom 0.4, which needs `wasm_js`
+# plus the rustflag in `.cargo/config.toml` (D6).
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
 js-sys = "0.3"
+getrandom_04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+
+[dev-dependencies]
+sha2 = { workspace = true }
+serde_json = "1"

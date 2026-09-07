@@ -214,6 +214,7 @@ pub enum AuditKind {
     GenerateRecovery,
     UnlockRecovery,
     RevokeRecovery,
+    RotateKeys,
 }
 
 /// Unix time in seconds. Returns 0 if the system clock is unavailable.

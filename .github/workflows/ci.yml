@@ -1,0 +1,116 @@
+# Lockfile-enforced tests (D15 / PR C2). No deploy.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require lockfiles
+        run: |
+          test -f Cargo.lock
+          test -f ui/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cargo test (workspace, locked)
+        run: cargo test --workspace --locked
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: UI lockfile install + CBOR tests + production build
+        working-directory: ui
+        run: |
+          npm ci
+          npm run test:cbor
+          npm run build
+
+      - name: Production HTML has CSP and no remote scripts
+        run: |
+          html=ui/dist/index.html
+          test -f "$html"
+          grep -F 'http-equiv="Content-Security-Policy"' "$html"
+          grep -F "default-src 'self'" "$html"
+          grep -F "script-src 'self' 'wasm-unsafe-eval'" "$html"
+          if grep -F "'unsafe-eval'" "$html"; then
+            echo "'unsafe-eval' is forbidden (wasm-unsafe-eval only)" >&2
+            exit 1
+          fi
+          if grep -F "'unsafe-inline'" "$html"; then
+            echo "'unsafe-inline' is forbidden" >&2
+            exit 1
+          fi
+          if grep -F 'frame-ancestors' "$html"; then
+            echo "frame-ancestors in a meta CSP is ignored by CSP3; do not include it" >&2
+            exit 1
+          fi
+          if grep -E -i '<script[^>]+src=["'\'']https?://' "$html"; then
+            echo "remote script src forbidden" >&2
+            exit 1
+          fi
+          if grep -E -i '<script[^>]+src=["'\'']//' "$html"; then
+            echo "protocol-relative script src forbidden" >&2
+            exit 1
+          fi
+
+      - name: WASM target checks
+        run: |
+          cargo check -p aegis-common --locked
+          cargo check -p aegis-browser-wasm --target wasm32-unknown-unknown --locked
+          cargo check -p aegis-vault-sync --target wasm32-unknown-unknown --locked --features freenet-main-contract
+
+      - name: Frozen v1 fixture checksums
+        run: |
+          set -euo pipefail
+          out=$(mktemp)
+          cargo test -p aegis-common --locked --lib \
+            v1_compat_tests::v1_fixture_sha256sums_match -- --exact | tee "$out"
+          grep -E 'test result: ok\. 1 passed' "$out"
+
+      - name: JS production dependency audit
+        working-directory: ui
+        run: npm audit --omit=dev --audit-level=high
+
+  rust-audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  cargo-deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check

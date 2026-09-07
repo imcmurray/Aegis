@@ -37,11 +37,16 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Require lockfiles
+        run: |
+          test -f Cargo.lock
+          test -f ui/package-lock.json
+
       - name: Install wasm-bindgen-cli
         run: |
-          # Must match wasm-bindgen crate version used by aegis-browser-wasm
-          cargo install wasm-bindgen-cli --version 0.2.126 --locked \
-            || cargo install wasm-bindgen-cli --version 0.2.126
+          # Must match wasm-bindgen crate version in tools/browser-wasm/Cargo.toml.
+          # --locked is required (D15): no unpinned fallback.
+          cargo install wasm-bindgen-cli --version 0.2.126 --locked --force
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -50,10 +55,29 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
+      - name: Cargo test (workspace, locked)
+        run: cargo test --workspace --locked
+
       - name: Build WASM + UI release
         run: |
           chmod +x scripts/build-wasm.sh scripts/package-release.sh
           ./scripts/package-release.sh
+
+      - name: Production HTML has CSP and no remote scripts
+        run: |
+          html=dist/freenet-release/ui/index.html
+          test -f "$html"
+          grep -F 'http-equiv="Content-Security-Policy"' "$html"
+          grep -F "default-src 'self'" "$html"
+          grep -F "script-src 'self' 'wasm-unsafe-eval'" "$html"
+          if grep -F 'frame-ancestors' "$html"; then
+            echo "frame-ancestors in a meta CSP is ignored by CSP3; do not include it" >&2
+            exit 1
+          fi
+          if grep -E -i '<script[^>]+src=["'\'']https?://' "$html"; then
+            echo "remote script src forbidden" >&2
+            exit 1
+          fi
 
       - name: Add Pages SPA base note
         run: |

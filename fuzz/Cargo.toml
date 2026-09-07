@@ -1,0 +1,71 @@
+[package]
+name = "aegis-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[workspace]
+members = ["."]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+aegis-common = { path = "../common" }
+
+[[bin]]
+name = "master_envelope_v2"
+path = "fuzz_targets/master_envelope_v2.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vault_blob_v2"
+path = "fuzz_targets/vault_blob_v2.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "backup_envelope_v2"
+path = "fuzz_targets/backup_envelope_v2.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "recovery_kit_v2"
+path = "fuzz_targets/recovery_kit_v2.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sync_state_v2"
+path = "fuzz_targets/sync_state_v2.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "share_envelope_v2"
+path = "fuzz_targets/share_envelope_v2.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "v1_master_envelope"
+path = "fuzz_targets/v1_master_envelope.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "seed_corpus"
+path = "seed_corpus.rs"
+test = false
+doc = false
+bench = false

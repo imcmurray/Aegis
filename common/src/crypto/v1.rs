@@ -21,7 +21,7 @@ const KEY_LEN: usize = 32;
 const NONCE_LEN: usize = 24;
 const SALT_LEN: usize = 16;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum CryptoError {
     #[error("encryption failed")]
     Encrypt,
@@ -39,6 +39,28 @@ pub enum CryptoError {
     KeyLength,
     #[error("serialization error: {0}")]
     Serde(String),
+    #[error("unsupported crypto suite 0x{0:04x}")]
+    UnsupportedSuite(u16),
+    #[error("unsupported object kind 0x{0:04x}")]
+    UnsupportedObjectKind(u16),
+    #[error("unrecognized file magic")]
+    InvalidMagic,
+    #[error("invalid kdf parameters")]
+    InvalidKdfParams,
+    #[error("resource limit exceeded")]
+    ResourceLimit,
+    #[error("passphrase too weak")]
+    WeakPassphrase,
+    #[error("hybrid sync signature rejected")]
+    HybridSignatureRejected,
+    #[error("sync identity is not the authorized HybridSyncIdentityV2")]
+    UnauthorizedSyncIdentity,
+    #[error("share identity is not the authorized hybrid recipient")]
+    UnauthorizedShareIdentity,
+    #[error("share sender is not the expected HybridSyncIdentityV2")]
+    UnauthorizedShareSender,
+    #[error("all-zero X25519 shared secret")]
+    ZeroSharedSecret,
 }
 
 /// Argon2id memory/time profiles.
@@ -125,6 +147,9 @@ impl SealedBlob {
     }
 
     pub fn from_cbor(bytes: &[u8]) -> Result<Self, CryptoError> {
+        if bytes.len() > 16 * 1024 * 1024 {
+            return Err(CryptoError::ResourceLimit);
+        }
         ciborium::from_reader(bytes).map_err(|e| CryptoError::Serde(e.to_string()))
     }
 }
@@ -146,6 +171,9 @@ impl MasterEnvelope {
     }
 
     pub fn from_cbor(bytes: &[u8]) -> Result<Self, CryptoError> {
+        if bytes.len() > 16 * 1024 * 1024 {
+            return Err(CryptoError::ResourceLimit);
+        }
         ciborium::from_reader(bytes).map_err(|e| CryptoError::Serde(e.to_string()))
     }
 }

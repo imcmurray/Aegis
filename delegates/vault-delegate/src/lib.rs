@@ -5,9 +5,11 @@
 
 #![allow(dead_code)] // referenced via #[delegate] WASM export path
 
+use aegis_common::gen_store::GenerationStore;
 use aegis_common::messages::{VaultRequest, VaultResponse};
 use aegis_common::vault::{
-    dispatch, SecretStore, VaultSession, SECRET_AUDIT, SECRET_ENVELOPE, SECRET_SESSION, SECRET_VAULT,
+    dispatch, ActiveSession, SecretStore, UNSUPPORTED_ATOMIC_COMMIT, SECRET_AUDIT, SECRET_ENVELOPE,
+    SECRET_SESSION, SECRET_VAULT,
 };
 use freenet_stdlib::prelude::*;
 
@@ -36,6 +38,15 @@ impl SecretStore for CtxStore<'_> {
     fn has(&self, key: &[u8]) -> bool {
         self.ctx.has_secret(key)
     }
+
+    fn commit(
+        &mut self,
+        _ops: &[aegis_common::vault::StoreOp],
+    ) -> Result<(), String> {
+        // Single-key set_secret is assumed durable; multi-key sequential write is not
+        // a commit. Callers must wrap this adapter in GenerationStore.
+        Err(UNSUPPORTED_ATOMIC_COMMIT.into())
+    }
 }
 
 struct Delegate;
@@ -49,8 +60,8 @@ fn respond(resp: VaultResponse) -> Result<Vec<OutboundDelegateMsg>, DelegateErro
     )])
 }
 
-fn load_session(store: &dyn SecretStore) -> Option<VaultSession> {
-    VaultSession::try_resume(store).ok().flatten()
+fn load_session(_store: &dyn SecretStore) -> Option<ActiveSession> {
+    None
 }
 
 #[delegate]
@@ -66,19 +77,13 @@ impl DelegateInterface for Delegate {
                 let req = VaultRequest::from_cbor(&app_msg.payload)
                     .map_err(|e| DelegateError::Deser(e))?;
 
-                let mut store = CtxStore { ctx };
+                let mut store = GenerationStore::new(CtxStore { ctx });
                 let mut session = load_session(&store);
                 let resp = dispatch(&mut store, &mut session, req);
 
-                // Ensure session secret is consistent after dispatch.
-                match &session {
-                    Some(s) => {
-                        store.set(SECRET_SESSION, s.master.as_bytes());
-                    }
-                    None => {
-                        if store.has(SECRET_SESSION) {
-                            store.remove(SECRET_SESSION);
-                        }
+                if store.has(SECRET_SESSION) {
+                    if !matches!(session, Some(ActiveSession::V1(_))) {
+                        store.remove(SECRET_SESSION);
                     }
                 }
 
@@ -110,12 +115,12 @@ mod tests {
             &mut store,
             &mut session,
             VaultRequest::CreateVault {
-                passphrase: "delegate-test".into(),
+                passphrase: "correct horse battery staple".into(),
                 kdf_profile: KdfProfile::Test,
             },
         );
         assert!(matches!(resp, VaultResponse::Unlocked { .. }));
-        assert!(store.has(SECRET_ENVELOPE));
-        assert!(store.has(SECRET_VAULT));
+        assert!(store.has(aegis_common::session_v2::SECRET_ENVELOPE_V2));
+        assert!(store.has(aegis_common::session_v2::SECRET_VAULT_V2));
     }
 }

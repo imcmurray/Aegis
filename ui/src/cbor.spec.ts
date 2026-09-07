@@ -85,6 +85,22 @@ function assert(cond: unknown, msg: string): asserts cond {
       },
     },
     { op: "export_encrypted", passphrase: "pw" },
+    { op: "migrate_vault", passphrase: "secret" },
+    {
+      op: "migrate_vault_with_recovery",
+      recovery_key: "deadbeef",
+      new_v2_passphrase: "correct horse battery staple",
+    },
+    { op: "rotate_keys", passphrase: "secret" },
+    { op: "export_recovery_kit" },
+    {
+      op: "import_recovery_kit",
+      kit: new Uint8Array([1, 2, 3]),
+      recovery_secret: "AEGIS2-TEST",
+      new_passphrase: "correct horse battery staple",
+      backup: new Uint8Array(0),
+      backup_passphrase: null,
+    },
   ];
   for (const req of cases) {
     const bytes = encodeRequest(req);
