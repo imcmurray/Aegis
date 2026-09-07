@@ -84,7 +84,12 @@ jobs:
           cargo check -p aegis-vault-sync --target wasm32-unknown-unknown --locked --features freenet-main-contract
 
       - name: Frozen v1 fixture checksums
-        run: cargo test -p aegis-common --locked --lib v1_fixture_sha256sums_match -- --exact
+        run: |
+          set -euo pipefail
+          out=$(mktemp)
+          cargo test -p aegis-common --locked --lib \
+            v1_compat_tests::v1_fixture_sha256sums_match -- --exact | tee "$out"
+          grep -E 'test result: ok\. 1 passed' "$out"
 
       - name: JS production dependency audit
         working-directory: ui
