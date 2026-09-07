@@ -86,6 +86,7 @@ cargo test --workspace
 | [docs/PUBLISH.md](docs/PUBLISH.md) | Freenet web container publish |
 | [docs/VAULTSYNC.md](docs/VAULTSYNC.md) | Multi-device mesh Sync (hybrid Ed25519 **and** ML-DSA-65) |
 | [docs/DEV.md](docs/DEV.md) | Local development |
+| [docs/RC-TEST-CHECKLIST.md](docs/RC-TEST-CHECKLIST.md) | Human soak for `v2.0.0-rc.1` (not a security claim) |
 
 ## Layout
 
