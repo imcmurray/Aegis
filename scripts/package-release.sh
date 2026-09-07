@@ -42,10 +42,29 @@ cp -f "$ROOT/docs/PUBLISH.md" "$OUT/docs/" 2>/dev/null || true
 cp -f "$ROOT/docs/ACCESS.md" "$OUT/ui/ACCESS.md" 2>/dev/null || true
 cp -f "$ROOT/README.md" "$OUT/"
 
+VERSION="$(python3 - <<'PY'
+from pathlib import Path
+text = Path("Cargo.toml").read_text()
+in_pkg = False
+for line in text.splitlines():
+    if line.strip() == "[workspace.package]":
+        in_pkg = True
+        continue
+    if in_pkg and line.startswith("["):
+        break
+    if in_pkg and line.startswith("version"):
+        print(line.split("=", 1)[1].strip().strip('"'))
+        break
+else:
+    raise SystemExit("workspace.package version not found")
+PY
+)"
+test -n "$VERSION"
+
 cat > "$OUT/MANIFEST.json" <<EOF
 {
   "app": "Aegis",
-  "version": "0.1.0",
+  "version": "$VERSION",
   "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "default_mode": "browser",
   "components": {

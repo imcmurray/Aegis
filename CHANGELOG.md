@@ -1,10 +1,14 @@
 # Changelog
 
-## [2.0.0-rc.1] — 2026-09-07
+## [2.0.0-rc.1] — 2026-09-06
 
 Aegis v2 has completed its planned architecture, implementation, adversarial review, browser validation, fuzzing, and security-CI gates; this does not constitute a claim of formal verification or absolute security.
 
-Tree: `b33e6eb` on `main`. Crate versions remain `0.1.0` until the eventual `v2.0.0` cut.
+Application version is `2.0.0-rc.1` (workspace crates + UI). Provenance:
+
+- `b33e6eb` — RC-validated implementation
+- `275be3e` — changelog notes
+- this commit — same implementation plus release metadata/versioning (the `v2.0.0-rc.1` tag should point here)
 
 ### Release-candidate gates
 

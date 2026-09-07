@@ -1,4 +1,9 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
+
+const pkg = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+) as { version: string };
 
 /**
  * Production CSP delivered via <meta http-equiv>. Dev server omits this so Vite HMR can run.
@@ -53,6 +58,9 @@ export default defineConfig({
     outDir: "dist",
     sourcemap: true,
   },
+  define: {
+    __AEGIS_VERSION__: JSON.stringify(pkg.version),
+  },
   optimizeDeps: {
     include: ["@freenetorg/freenet-stdlib", "cbor-x"],
   },
@@ -64,10 +72,15 @@ export default defineConfig({
         handler(html, ctx) {
           if (ctx.server) return html;
           if (html.includes("Content-Security-Policy")) return html;
-          return html.replace(
-            '<meta charset="UTF-8" />',
-            `<meta charset="UTF-8" />\n    <meta http-equiv="Content-Security-Policy" content="${PRODUCTION_CSP}" />`,
-          );
+          return html
+            .replace(
+              '<meta charset="UTF-8" />',
+              `<meta charset="UTF-8" />\n    <meta http-equiv="Content-Security-Policy" content="${PRODUCTION_CSP}" />`,
+            )
+            .replace(
+              "<title>Aegis — Decentralized Password Manager</title>",
+              `<title>Aegis ${pkg.version} — Decentralized Password Manager</title>`,
+            );
         },
       },
     },

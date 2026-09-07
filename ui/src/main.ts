@@ -22,6 +22,7 @@ import {
 } from "./peerStatus";
 import { storageSet } from "./storage";
 import { generateTotp } from "./totp";
+import { AEGIS_VERSION } from "./version";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 
@@ -372,6 +373,14 @@ function buildHeader(): HTMLElement {
       }),
     );
   }
+  badges.append(
+    el("span", {
+      class: "badge badge-mode",
+      "data-app-version": AEGIS_VERSION,
+      text: AEGIS_VERSION,
+      title: `Aegis ${AEGIS_VERSION}`,
+    }),
+  );
   const header = el("header", { class: "app-header" }, [
     el("h1", {}, ["Aegis ", el("span", { text: "Password Manager" })]),
     badges,
