@@ -30,7 +30,7 @@ rustup target add wasm32-unknown-unknown
 # freenet + fdev from freenet-core (see docs/FREENET.md)
 
 # Node for UI build
-cd ui && npm install
+cd ui && npm ci
 ```
 
 ## Build a release bundle

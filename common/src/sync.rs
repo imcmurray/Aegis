@@ -194,7 +194,7 @@ pub struct SyncReport {
 }
 
 /// Semantic score for picking among concurrent vault snapshots.
-fn doc_rank(doc: &VaultDocument) -> (u64, usize, u64) {
+pub(crate) fn doc_rank(doc: &VaultDocument) -> (u64, usize, u64) {
     (
         doc.meta.updated_at,
         doc.entries.len() + doc.folders.len(),
@@ -204,7 +204,7 @@ fn doc_rank(doc: &VaultDocument) -> (u64, usize, u64) {
 
 /// Merge two vault documents field-wise (entries/folders by higher `updated_at`).
 /// Only bumps `meta.updated_at` when entries/folders/deleted actually change.
-fn merge_docs(local: &VaultDocument, remote: &VaultDocument, keep_device_id: &str) -> VaultDocument {
+pub(crate) fn merge_docs(local: &VaultDocument, remote: &VaultDocument, keep_device_id: &str) -> VaultDocument {
     let mut out = local.clone();
     out.meta.device_id = keep_device_id.to_string();
     let before_entries = out.entries.len();
@@ -257,7 +257,7 @@ fn merge_docs(local: &VaultDocument, remote: &VaultDocument, keep_device_id: &st
 }
 
 /// True when remote merge changed vault data (not just meta).
-fn data_differs(a: &VaultDocument, b: &VaultDocument) -> bool {
+pub(crate) fn data_differs(a: &VaultDocument, b: &VaultDocument) -> bool {
     a.entries != b.entries || a.folders != b.folders || a.deleted != b.deleted
 }
 
@@ -612,18 +612,11 @@ mod tests {
         // Re-CBOR must not cause a spurious push.
         use crate::crypto::KdfProfile;
         use crate::messages::{VaultRequest, VaultResponse};
-        use crate::vault::{dispatch, VaultSession, SECRET_SESSION};
+        use crate::vault::{dispatch, ActiveSession, VaultSession, SECRET_SESSION};
 
         let mut store = MemoryStore::default();
-        let mut session = None;
-        dispatch(
-            &mut store,
-            &mut session,
-            VaultRequest::CreateVault {
-                passphrase: "reload-sync-pass".into(),
-                kdf_profile: KdfProfile::Test,
-            },
-        );
+        let s = VaultSession::create(&mut store, "reload-sync-pass", KdfProfile::Test).unwrap();
+        let mut session = Some(ActiveSession::V1(s));
         let mut e = Entry::new(new_id(), "One");
         e.password = "p".into();
         dispatch(
@@ -647,7 +640,9 @@ mod tests {
         // Simulate next Freenet ApplicationMessage: only master stays in
         // SECRET_SESSION; vault doc is re-opened from SECRET_VAULT.
         assert!(store.has(SECRET_SESSION));
-        let mut session2 = VaultSession::try_resume(&store).unwrap();
+        let mut session2 = VaultSession::try_resume(&store)
+            .unwrap()
+            .map(ActiveSession::V1);
         assert!(session2.is_some());
 
         let r = dispatch(&mut store, &mut session2, VaultRequest::SyncNow);
@@ -663,7 +658,9 @@ mod tests {
         );
 
         // Third time still up to date
-        let mut session3 = VaultSession::try_resume(&store).unwrap();
+        let mut session3 = VaultSession::try_resume(&store)
+            .unwrap()
+            .map(ActiveSession::V1);
         let r = dispatch(&mut store, &mut session3, VaultRequest::SyncNow);
         assert!(
             matches!(

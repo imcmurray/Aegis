@@ -1,0 +1,4 @@
+# SHA-256 of vendored ML-DSA-65 ACVP subsets. Source-file hashes are in PROVENANCE.md.
+9056b8a46c04a289033bb7cb2b4d04d6dcb00d995b9412af81918763887967ae  keyGen-FIPS204-ML-DSA-65.json
+0dc4991d1f003ffecba9cc5b102b7f13caf335c7a7a7d69c52a9c7f51aedd2a9  sigGen-FIPS204-ML-DSA-65.json
+e2705a370599fc7e5ec5b00aeab3332cece98b5c9273a20139be89ef5d25acfd  sigVer-FIPS204-ML-DSA-65.json

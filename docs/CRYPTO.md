@@ -1,64 +1,96 @@
-# Aegis Cryptography
+# Aegis Cryptography (production v2)
 
-## Algorithms (v1)
+This document describes **the implemented v2 system**. The frozen architecture contract is [`CRYPTO-V2.md`](./CRYPTO-V2.md) and [`CRYPTO-V2-DECISIONS.md`](./CRYPTO-V2-DECISIONS.md) (D1–D18). v1 remains a **decode-only / migration** path.
 
-| Purpose | Algorithm | Notes |
-|---------|-----------|--------|
-| Passphrase KDF | Argon2id | Salt 16 bytes; params profiled (see below) |
-| Vault / envelope AEAD | XChaCha20-Poly1305 | 24-byte nonce, 16-byte tag |
-| Key derivation | HKDF-SHA256 | Domain-separated labels |
-| Sync write auth | Ed25519 | Contract verifies under owner VK |
-| Share key wrap (phase 3) | X25519 + HKDF + AEAD | River private-room analog |
+A passing test suite is not a claim that Aegis is “secure.” It is evidence that the implementation was checked against this contract.
 
-## KDF profiles
+## Suites (never reuse an ID)
 
-| Profile | Memory | Iterations | Parallelism | Use |
-|---------|--------|------------|-------------|-----|
-| `Interactive` | 64 MiB | 3 | 1 | Default desktop |
-| `Mobile` | 32 MiB | 2 | 1 | Constrained peers |
-| `High` | 128 MiB | 4 | 2 | High-security vaults |
-| `Test` | 8 KiB | 1 | 1 | Unit tests only |
+| ID | Name | Used for |
+|----|------|----------|
+| `0x0001` | AegisV1Legacy | Decode/migrate only. Never generated on the v2 path. |
+| `0x0002` | AegisV2Core2026 | Storage, master wrap, vault/audit/sync **inner** ciphertext, backup, Recovery Kit. **Not hybrid.** |
+| `0x0003` | AegisV2SyncHybrid2026 | VaultSync revisions and identity transitions: Ed25519 **AND** ML-DSA-65. |
+| `0x0004` | AegisV2ShareHybrid2026 | Sharing: X25519 **AND** ML-KEM-768 plus hybrid signatures. |
 
-## Envelope formats
+Pins: `ml-dsa 0.1.1` (ML-DSA-65), `ml-kem 0.3.2` (ML-KEM-768). Suite IDs are not retargeted when a newer crate appears.
 
-All sealed blobs are versioned:
+## Key hierarchy
 
 ```
-AegisEnvelopeV1 {
-  version: u16 = 1,
-  kind: enum { MasterWrap, VaultBlob, ExportBlob, SyncPayload },
-  nonce: [u8; 24],
-  ciphertext: bytes,   // includes Poly1305 tag (as produced by crate)
-}
+Master passphrase  ──Argon2id (≥ 64 MiB, t=3, p=1)──►  WrapKek
+                                                      │
+Random 256-bit RootSecret  ◄── XChaCha20-Poly1305 ────┘
+        │ HKDF-SHA256, salt = vault_id (16 bytes)
+        ├─ vault-dek
+        ├─ audit-dek          (audit is not sealed with vault-dek)
+        ├─ sync-dek           (inner SyncBlob; on-wire is hybrid-signed)
+        ├─ search-hmac
+        ├─ sync-ed25519-seed
+        ├─ sync-mldsa-seed
+        ├─ share-x25519-seed
+        └─ share-mlkem-seed   (64-byte FIPS 203 d||z)
 ```
 
-**AAD** (where applicable): `b"aegis/v1" || kind || vault_id || logical_id`
+`RecoveryKek` is **not** a RootSecret child. `RecoverySecret` is independent 256-bit CSPRNG: `HKDF-SHA256(IKM=RecoverySecret, salt=vault_id, info="aegis/v2/recovery-kek")`.
 
-## HKDF labels
+RootSecret is memory-only while unlocked. There is no `aegis/v2/session`.
 
-| Label | Output |
-|-------|--------|
-| `aegis/v1/vault-dek` | 32-byte vault DEK |
-| `aegis/v1/sync-sign` | 32-byte Ed25519 seed |
-| `aegis/v1/sync-addr` | 32-byte addressing material |
-| `aegis/v1/search-hmac` | 32-byte HMAC key (optional) |
-| `aegis/v1/share-ecdh` | 32-byte X25519 seed (phase 3) |
+## Passphrase change vs rotation
 
-## Master wrap
+| Operation | RootSecret | vault_id | key_epoch | Operational keys |
+|-----------|------------|----------|-----------|------------------|
+| Change passphrase | same | same | same | same (re-wrap only) |
+| Full rotation | **new** | same | +1 | **new** (including share/sync identities) |
 
-1. Generate random `MasterSecret` (32 B) and `salt` (16 B).
-2. `KEK = Argon2id(passphrase, salt, params)`.
-3. Seal `MasterSecret` under KEK → stored in delegate secret `aegis/v1/envelope`.
-4. Vault document sealed under `vault-dek` → `aegis/v1/vault`.
+Rotation is never implicit on unlock. Outstanding unopened share envelopes addressed to the old epoch cannot be opened afterward.
 
-## Test vectors
+## File magics (D10)
 
-Unit tests in `common` pin seal/open round-trips and Argon2 unwrap.  
-Do not treat `Test` KDF profile as production strength.
+External files are `ASCII_MAGIC || 0x02 || CBOR`. Unknown magic/version is rejected **before** CBOR.
 
-## What must never appear on the network in cleartext
+| Artifact | Magic | Identity effect |
+|----------|-------|-----------------|
+| Vault / master envelope | `AEGIS_VAULT_V2` | Live vault |
+| Normal backup | `AEGIS_BACKUP_V2` | Restore **mints a new** RootSecret and vault_id |
+| Recovery Kit | `AEGIS_RECOVERY_V2` | Restores **the same** RootSecret / vault_id / key_epoch |
+| Sync file | `AEGIS_SYNC_V2` | Hybrid revisions. Freenet app id `AEGIS_VAULT_SYNC_V2` is **not** file magic. |
 
-- Passwords, notes, TOTP seeds, attachment bytes
-- MasterSecret, KEK, vault DEK
-- Recovery key material
-- Unblinded search queries (if network search is ever added)
+Shares are CBOR with `deny_unknown_fields` (no `MAGIC_SHARE_V2`).
+
+## Normal backup vs Recovery Kit
+
+- **Normal `.aegis` backup** contains a data snapshot under an independent BackupKey. It does **not** contain RootSecret. Restore creates a new cryptographic identity. Backup passphrase is never reused as the live-vault passphrase.
+- **Recovery Kit** (`.aegis-recovery`) contains only the wrapped RootSecret. Possession of **kit + RecoverySecret** is control of the vault identity. Store them separately. RecoverySecret is generated by Aegis (256-bit, Crockford+checksum `AEGIS2-…`) and is never stored in IndexedDB/SecretStore.
+- **Lost passphrase** (existing local vault): kit + secret + **new** D18 passphrase. Requires exact `vault_id` and `key_epoch` match; recovered RootSecret must open current vault/audit. Stale/future kits are rejected.
+- **Empty-install disaster recovery**: kit (identity) + normal backup (data) + new live passphrase. `backup.original_vault_id` must equal `kit.vault_id`. The kit alone cannot restore passwords.
+
+## Hybrid composition
+
+**Sync (0x0003):** both Ed25519 and ML-DSA-65 must verify over the same D1 transcript. Wire keys are compared to the **authorized** HybridSyncIdentityV2 before attribution. A missing PQ or classical signature fails closed.
+
+**Share (0x0004):** recipient identity certifies X25519 **and** ML-KEM-768 together. Combiner (D5): reject all-zero X25519 shared secret; `IKM = ML-KEM SS || X25519 SS`; `salt = SHA-256(share transcript)`; `info = "aegis/v2/share/hybrid-kek"`. Opening a share requires an expected sender identity snapshot; envelope-carried signatures are not proof of a trusted sender.
+
+## Transcripts (D1)
+
+AAD/signing transcripts are length-prefixed, not CBOR map bytes:
+
+`Aegis || version_u16_le || suite_u16_le || kind_u16_le || vault_id_16 || key_epoch_u32_le || (len_u32_le || field)*`
+
+Kinds include MasterWrap `0x0001`, VaultBlob `0x0002`, AuditBlob `0x0003`, SyncBlob `0x0004`, ExportBlob `0x0005`, BackupWrap `0x0006`, SyncRevision `0x0007`, SyncTransition `0x0008`, ShareIdentity `0x0009`, ShareEnvelope `0x000A`, SharePayload `0x000B`, RecoveryWrap `0x000C`.
+
+## Argon2 (D8 / D12)
+
+New v2 envelopes: floor **64 MiB**, t=3, p=1 (preferred 128 MiB when the device can). `Test` and v1 Mobile cannot generate. Work factor `memory_kib * iterations` is a checked `u64` and must be `≤ 786_432` before hasher allocation. Caps: 256 MiB, t≤8, p≤4.
+
+Passphrases (D18): 12-character floor; reject a small denylist of obviously inadequate strings. Bytes are not trimmed or case-folded.
+
+## v1 compatibility
+
+v1 envelopes (`SealedBlob.version = 1`, HKDF `aegis/v1/*`, Ed25519-only sync, 160-bit Crockford recovery) still **decode** for migration. v2 never emits them. A malformed v2 object is not retried as v1. v1 recovery keys cannot unlock a v2 vault.
+
+## What must never appear in persistent storage or logs
+
+- RootSecret, WrapKek, RecoveryKek, RecoverySecret, BackupKey, DEKs, PQ private seeds
+- Passwords, TOTP seeds, notes
+- Debug `Display`/`Serialize` of secret newtypes (they are redacted / not derived)

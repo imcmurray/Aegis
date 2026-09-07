@@ -17,7 +17,7 @@ if [[ ! -f "$ROOT/ui/public/browser-wasm/aegis_browser_wasm.js" ]]; then
 fi
 
 echo "==> 2/4 UI production build"
-(cd "$ROOT/ui" && npm ci 2>/dev/null || npm install)
+(cd "$ROOT/ui" && npm ci)
 (cd "$ROOT/ui" && npm run build)
 
 echo "==> 3/4 Stage artifacts"

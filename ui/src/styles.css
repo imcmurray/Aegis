@@ -56,6 +56,11 @@ header.app-header {
   white-space: nowrap;
 }
 
+.badge-warn {
+  background: color-mix(in srgb, var(--danger, #b45309) 18%, transparent);
+  border: 1px solid var(--danger, #b45309);
+}
+
 .peer-chip {
   font-size: 0.72rem;
   font-weight: 600;
@@ -857,6 +862,21 @@ a.button-link:hover {
   color: var(--text-muted);
   font-size: 0.85rem;
   line-height: 1.45;
+}
+
+.recovery-warning {
+  border: 1px solid color-mix(in srgb, var(--danger) 55%, var(--border));
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--text);
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  margin: 0.6rem 0;
+}
+
+.recovery-warning strong {
+  color: var(--danger);
 }
 
 .hidden {

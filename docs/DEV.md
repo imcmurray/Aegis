@@ -13,9 +13,15 @@
 ### UI + mock (no Rust server)
 
 ```bash
-cd ui && npm install && npm run dev
+cd ui && npm ci && npm run dev
 # open http://localhost:5173/
 ```
+
+Runtime JavaScript is **self-hosted only** (Vite bundles `node_modules`; no CDN scripts). Production builds inject a strict **meta** CSP (`default-src 'self'`; `script-src 'self' 'wasm-unsafe-eval'`; no `'unsafe-inline'` / `'unsafe-eval'`). The Vite dev server omits CSP so HMR works.
+
+`frame-ancestors` is **not** in that meta policy: browsers ignore it on `<meta http-equiv>` (CSP Level 3). GitHub Pages cannot send CSP headers, so framing is not a claimed control there. A future reverse proxy/CDN should add `Content-Security-Policy: …; frame-ancestors 'none'` as an HTTP header.
+
+`connect-src` allows `'self'` plus `http://127.0.0.1:8787` (`?mode=dev`) and `ws://127.0.0.1:7509` (`?mode=freenet`). A custom `AEGIS_DEV_PORT` is not in the production policy.
 
 ### UI + real crypto (recommended next)
 
@@ -34,6 +40,7 @@ kill <pid>
 # or use another port:
 AEGIS_DEV_PORT=8788 cargo run -p aegis-dev-vault-server
 # then open: http://localhost:5173/?mode=dev&devUrl=http://127.0.0.1:8788
+# (production CSP allows only :8787; custom ports are a local-dev concern)
 ```
 
 Terminal 2:
@@ -144,3 +151,32 @@ Delegate messages use **CBOR** `VaultRequest` / `VaultResponse` (same as the dev
 - **Binary fields** (`blob`): CBOR major type 2 (byte string), not array of ints
 
 See `common/src/messages.rs` and `ui/src/cbor.ts`.
+
+## Crypto modules
+
+Production create/unlock/backup/sync/share/recovery is **v2** (`VaultSessionV2`). v1 (`v1.rs`) is decode/migration only. Frozen v1 fixtures: `common/tests/fixtures/v1/` — do not regenerate.
+
+See [CRYPTO.md](./CRYPTO.md) for suites, magics, backup vs Recovery Kit, and hybrid rules.
+
+## Parser fuzzing (Phase 10)
+
+CI runs a deterministic parser smoke (`common/tests/phase10.rs`) over random/mutated inputs for every §56 external decoder. That is not a substitute for a long libFuzzer campaign.
+
+Longer runs (nightly + clang):
+
+```bash
+cargo install cargo-fuzz
+cd fuzz
+# optional: seed corpora with valid fixtures
+mkdir -p corpus/master_envelope_v2
+cp ../common/tests/fixtures/v1/*.cbor corpus/v1_master_envelope/ 2>/dev/null || true
+cargo +nightly fuzz run master_envelope_v2
+cargo +nightly fuzz run vault_blob_v2
+cargo +nightly fuzz run backup_envelope_v2
+cargo +nightly fuzz run recovery_kit_v2
+cargo +nightly fuzz run sync_state_v2
+cargo +nightly fuzz run share_envelope_v2
+cargo +nightly fuzz run v1_master_envelope
+```
+
+The `fuzz/` package is **not** a workspace member (libfuzzer-sys / nightly). Do not add it to the root `Cargo.toml`.

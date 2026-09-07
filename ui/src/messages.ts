@@ -83,6 +83,8 @@ export type VaultRequest =
       op: "import_encrypted";
       blob: number[] | Uint8Array;
       passphrase: string;
+      /** Independent live-vault passphrase (D18). Required for v1 and v2 restore. */
+      new_passphrase?: string | null;
       /** Wipe existing vault and replace (re-sync another browser). */
       replace?: boolean;
     }
@@ -105,8 +107,35 @@ export type VaultRequest =
     }
   | { op: "password_health" }
   | { op: "generate_recovery_key"; kdf_profile?: KdfProfile }
+  | { op: "export_recovery_kit" }
+  | {
+      op: "import_recovery_kit";
+      kit: number[] | Uint8Array;
+      recovery_secret: string;
+      new_passphrase: string;
+      backup?: number[] | Uint8Array;
+      backup_passphrase?: string | null;
+    }
   | { op: "unlock_with_recovery"; recovery_key: string }
-  | { op: "revoke_recovery_key" };
+  | { op: "revoke_recovery_key" }
+  | { op: "migrate_vault"; passphrase: string }
+  | {
+      op: "migrate_vault_with_recovery";
+      recovery_key: string;
+      new_v2_passphrase: string;
+    }
+  | { op: "rotate_keys"; passphrase: string; recovery_key?: string | null }
+  | { op: "export_share_identity" }
+  | {
+      op: "create_share";
+      entry_id: string;
+      recipient_identity: number[] | Uint8Array;
+    }
+  | {
+      op: "open_share";
+      envelope: number[] | Uint8Array;
+      expected_sender_identity?: number[] | Uint8Array;
+    };
 
 /** Entry present on both sides but with differing fields (no secret values). */
 export interface ImportEntryChange {
@@ -152,6 +181,8 @@ export type VaultResponse =
       unlocked: boolean;
       vault_id: string | null;
       has_recovery?: boolean;
+      vault_format?: string | null;
+      needs_migration?: boolean;
     }
   | { type: "unlocked"; vault_id: string }
   | { type: "locked" }
@@ -190,13 +221,22 @@ export type VaultResponse =
       detail: string;
       /** VaultSyncState CBOR for contract Put (may be empty). */
       contract_state?: number[] | Uint8Array;
-      /** Owner Ed25519 verifying key (32) — Freenet identity for this vault. */
+      /** Owner Ed25519 verifying key (32) — display / v1 Freenet identity. v2 hybrid identity is in sync_params. */
       owner_verifying_key?: number[] | Uint8Array;
-      /** CBOR VaultSyncParams for contract instance address. */
+      /** CBOR VaultSyncParams (v1) or VaultSyncParamsV2 (app AEGIS_VAULT_SYNC_V2). */
       sync_params?: number[] | Uint8Array;
     }
   | { type: "health"; report: HealthReport }
-  | { type: "recovery_key"; recovery_key: string }
+  | { type: "recovery_key"; recovery_key: string; kit?: Uint8Array | number[] }
+  | { type: "migrated"; vault_id: string; recovery_secret: string }
+  | {
+      type: "rotated";
+      vault_id: string;
+      key_epoch: number;
+      recovery_secret?: string | null;
+    }
+  | { type: "share_identity"; blob: Uint8Array | number[] }
+  | { type: "share_envelope"; blob: Uint8Array | number[] }
   | { type: "error"; code: string; message: string };
 
 export function emptyEntry(): Entry {

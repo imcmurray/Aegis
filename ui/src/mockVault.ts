@@ -264,6 +264,8 @@ export class MockVaultClient {
             unlocked: !!this.doc,
             vault_id: this.doc?.vault_id ?? null,
             has_recovery: !!storageGet(RECOVERY_KEY),
+            vault_format: raw ? "mock" : null,
+            needs_migration: false,
           };
         }
         case "create_vault": {
@@ -495,9 +497,8 @@ export class MockVaultClient {
           }
           const parts: string[] = [];
           const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-          const buf = new Uint8Array(20);
+          const buf = new Uint8Array(32);
           crypto.getRandomValues(buf);
-          // rough base32
           let bits = 0;
           let nbits = 0;
           let b32 = "";
@@ -509,22 +510,49 @@ export class MockVaultClient {
               b32 += alphabet[(bits >> nbits) & 31];
             }
           }
-          for (let i = 0; i < 32; i += 4) parts.push(b32.slice(i, i + 4));
-          const recovery_key = `AEGIS-${parts.join("-")}`;
+          if (nbits > 0) b32 += alphabet[(bits << (5 - nbits)) & 31];
+          const body = (b32 + "00").slice(0, 54);
+          for (let i = 0; i < body.length; i += 4) parts.push(body.slice(i, i + 4));
+          const recovery_key = `AEGIS2-${parts.join("-")}`;
           const norm = recovery_key
             .replace(/[^a-zA-Z0-9]/g, "")
             .toUpperCase()
-            .replace(/^AEGIS/, "");
+            .replace(/^AEGIS2/, "");
           storageSet(RECOVERY_KEY, norm);
+          const kit = new Uint8Array(18);
+          const magic = new TextEncoder().encode("AEGIS_RECOVERY_V2");
+          kit.set(magic, 0);
+          kit[17] = 0x02;
+          storageSet(RECOVERY_KEY + ".kit", JSON.stringify([...kit]));
           // Mock-only: remember current passphrase so recovery can re-open the AES blob.
           if (this.passphrase) storageSet(RECOVERY_KEY + ".pw", this.passphrase);
-          return { type: "recovery_key", recovery_key };
+          return { type: "recovery_key", recovery_key, kit };
         }
+        case "export_recovery_kit": {
+          if (!this.doc) return { type: "error", code: "locked", message: "locked" };
+          const raw = storageGet(RECOVERY_KEY + ".kit");
+          if (!raw) {
+            return { type: "error", code: "not_found", message: "no recovery kit configured" };
+          }
+          return {
+            type: "recovery_key",
+            recovery_key: "",
+            kit: new Uint8Array(JSON.parse(raw) as number[]),
+          };
+        }
+        case "import_recovery_kit":
+          return {
+            type: "error",
+            code: "not_implemented",
+            message:
+              "mock vault cannot restore a production Recovery Kit; use the WASM vault for identity-preserving recovery",
+          };
         case "unlock_with_recovery": {
           const stored = storageGet(RECOVERY_KEY);
           const norm = req.recovery_key
             .replace(/[^a-zA-Z0-9]/g, "")
             .toUpperCase()
+            .replace(/^AEGIS2/, "")
             .replace(/^AEGIS/, "");
           if (!stored || stored !== norm) {
             return { type: "error", code: "auth_failed", message: "invalid recovery key" };
@@ -555,6 +583,19 @@ export class MockVaultClient {
           storageRemove(RECOVERY_KEY + ".pw");
           return { type: "ok" };
         }
+        case "migrate_vault":
+        case "migrate_vault_with_recovery":
+          return {
+            type: "error",
+            code: "invalid_request",
+            message: "mock vault is not a v1 production vault",
+          };
+        case "rotate_keys":
+          return {
+            type: "error",
+            code: "not_implemented",
+            message: "mock vault does not rotate cryptographic keys",
+          };
         case "password_health": {
           if (!this.doc) return { type: "error", code: "locked", message: "locked" };
           const entries = Object.values(this.doc.entries);

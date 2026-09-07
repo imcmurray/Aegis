@@ -30,23 +30,23 @@ Browser UI  ──WebSocket──►  Freenet Core (local peer)
 | **Share contracts** | Network | Never | Phase 3 — ECIES-wrapped item keys |
 | **UI** | Browser iframe | Transient display only | UX; messages only via Core |
 
-## Key hierarchy
+## Key hierarchy (v2 production)
 
 ```
-Master Passphrase
-    │ Argon2id(salt, params)
-    ▼
-  KEK  ──unwrap──►  MasterSecret (32 B random)
-                        │ HKDF-SHA256 labels
-                        ├─ aegis/v1/vault-dek
-                        ├─ aegis/v1/sync-sign   (Ed25519)
-                        ├─ aegis/v1/sync-addr
-                        ├─ aegis/v1/search-hmac (optional)
-                        └─ aegis/v1/share-ecdh  (X25519, phase 3)
+Master passphrase
+    │ Argon2id ≥ 64 MiB (WrapKek)     independent RecoverySecret (256-bit CSPRNG)
+    ▼                                          │ HKDF recovery-kek
+RootSecret (32 B, memory-only)  ◄── wrap ──────┘  Recovery Kit file
+    │ HKDF-SHA256, salt = vault_id
+    ├─ vault-dek / audit-dek / sync-dek / search-hmac
+    ├─ sync-ed25519-seed + sync-mldsa-seed     (suite 0x0003, AND)
+    └─ share-x25519-seed + share-mlkem-seed    (suite 0x0004, D5 combiner)
 ```
 
-Passphrase change re-wraps `MasterSecret` only (no full vault re-encrypt).  
-Optional recovery key wraps `MasterSecret` independently.
+Passphrase change re-wraps the **same** RootSecret (no vault re-encrypt, epoch unchanged).  
+Full rotation mints a new RootSecret, increments `key_epoch`, and replaces sync/share identities.  
+Normal backups do **not** contain RootSecret and restore as a **new** identity.  
+A Recovery Kit restores the **same** identity; it is not a backup.
 
 ## Private vs shared state
 
@@ -83,15 +83,15 @@ See `common/src/types.rs` for the source of truth.
 | UI | TypeScript + Vite + `@freenetorg/freenet-stdlib` |
 | AEAD | XChaCha20-Poly1305 |
 | KDF | Argon2id |
-| Signatures | Ed25519 |
-| ECDH (shares) | X25519 |
+| Signatures | Ed25519 **AND** ML-DSA-65 on sync (0x0003) |
+| Share KEM | X25519 **AND** ML-KEM-768 (0x0004) |
+| Storage AEAD | XChaCha20-Poly1305 (Core 0x0002) |
 
-## Phased roadmap
+## Implementation status
 
-1. **Phase 1** — Local vault (create/unlock/CRUD/generator/export/audit) — *current scaffold target*
-2. **Phase 2** — VaultSync multi-device
-3. **Phase 3** — Secure sharing
-4. **Phase 4** — TOTP, attachments, health dashboard, emergency access, biometrics
+Phases 0–9 of [`CRYPTO-V2.md`](./CRYPTO-V2.md) §66 are implemented. Phase 10 is hardening, fuzzing, dependency review, and documentation — not a new protocol.
+
+v1 remains decode/migration only. Production create/unlock/backup/sync/share/recovery is v2.
 
 ## Repository layout
 
@@ -108,4 +108,5 @@ Aegis/
 ## Security pointers
 
 Full threat model: [THREAT_MODEL.md](./THREAT_MODEL.md)  
-Crypto details: [CRYPTO.md](./CRYPTO.md)
+Crypto details (implemented v2): [CRYPTO.md](./CRYPTO.md)  
+v2 contract / gap / decisions: [CRYPTO-V2.md](./CRYPTO-V2.md), [CRYPTO-V2-GAP.md](./CRYPTO-V2-GAP.md), [CRYPTO-V2-DECISIONS.md](./CRYPTO-V2-DECISIONS.md)

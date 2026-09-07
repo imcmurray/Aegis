@@ -4,13 +4,13 @@
 //! and `import_store` on load. Session key is never exported.
 
 use aegis_common::messages::{VaultRequest, VaultResponse};
-use aegis_common::vault::{dispatch, MemoryStore, SecretStore, VaultSession};
+use aegis_common::vault::{dispatch, ActiveSession, MemoryStore, SecretStore};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub struct BrowserVault {
     store: MemoryStore,
-    session: Option<VaultSession>,
+    session: Option<ActiveSession>,
 }
 
 #[wasm_bindgen]
@@ -38,14 +38,10 @@ impl BrowserVault {
             }
         };
         let resp = dispatch(&mut self.store, &mut self.session, req);
-        // Keep session master in store while unlocked (delegate pattern).
-        match &self.session {
-            Some(s) => {
-                self.store
-                    .set(aegis_common::vault::SECRET_SESSION, s.master.as_bytes());
-            }
-            None => {
-                if self.store.has(aegis_common::vault::SECRET_SESSION) {
+        if self.store.has(aegis_common::vault::SECRET_SESSION) {
+            match &self.session {
+                Some(ActiveSession::V1(_)) => {}
+                _ => {
                     self.store.remove(aegis_common::vault::SECRET_SESSION);
                 }
             }

@@ -36,6 +36,9 @@ let clipboardClearTimer: ReturnType<typeof setTimeout> | null = null;
 let lastCopiedSecret: string | null = null;
 /** Set when vault was unlocked via recovery key — nudge user to set a new passphrase. */
 let unlockedViaRecovery = false;
+let vaultFormat: string | null = null;
+let needsMigration = false;
+let migrationRecoverySecret: string | null = null;
 
 async function refreshPeerProbe(force = false) {
   peerProbe = await probeFreenetPeer({ force });
@@ -44,6 +47,24 @@ async function refreshPeerProbe(force = false) {
 
 function caps() {
   return meshCapabilities(peerProbe, Boolean(client?.freenetApi));
+}
+
+/** Copy a passphrase out of an input and clear the field so JS does not retain it. */
+function downloadBytes(data: Uint8Array | number[], filename: string) {
+  const bytes = data instanceof Uint8Array ? new Uint8Array(data) : new Uint8Array(data);
+  const blob = new Blob([bytes.buffer], { type: "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function takePassword(input: HTMLInputElement): string {
+  const value = input.value;
+  input.value = "";
+  return value;
 }
 
 async function initClient() {
@@ -329,6 +350,28 @@ function buildHeader(): HTMLElement {
       title: peerTitle,
     }),
   ]);
+  if (vaultFormat) {
+    badges.append(
+      el("span", {
+        class: needsMigration ? "badge badge-warn" : "badge badge-mode",
+        text: needsMigration ? `${vaultFormat} · migrate` : vaultFormat,
+        title: needsMigration
+          ? "Legacy v1 vault — migrate to v2 before making changes."
+          : `Active vault format: ${vaultFormat}`,
+      }),
+    );
+  }
+  const st = (window as unknown as { __aegisStatus?: { vault_id?: string | null } }).__aegisStatus;
+  if (st?.vault_id) {
+    badges.append(
+      el("span", {
+        class: "badge badge-mode",
+        "data-vault-id": st.vault_id,
+        text: `id ${st.vault_id.slice(0, 8)}…`,
+        title: `vault_id ${st.vault_id}`,
+      }),
+    );
+  }
   const header = el("header", { class: "app-header" }, [
     el("h1", {}, ["Aegis ", el("span", { text: "Password Manager" })]),
     badges,
@@ -378,11 +421,21 @@ async function render() {
     await refreshPeerProbe(false);
   }
 
+  const status = await client.request({ op: "status" });
+  if (status.type === "status") {
+    unlocked = status.unlocked;
+    vaultFormat = status.vault_format ?? null;
+    needsMigration = Boolean(status.needs_migration);
+    (window as unknown as { __aegisStatus?: unknown }).__aegisStatus = status;
+  } else {
+    vaultFormat = null;
+    needsMigration = false;
+  }
+
   app.innerHTML = "";
   app.append(buildHeader());
   app.append(buildCapabilityBar());
 
-  const status = await client.request({ op: "status" });
   if (status.type === "error") {
     app.append(el("p", { class: "error", text: status.message }));
     app.append(el("p", { class: "hint", text: modeHint() }));
@@ -390,8 +443,6 @@ async function render() {
     return;
   }
   if (status.type !== "status") return;
-
-  unlocked = status.unlocked;
 
   if (!status.has_vault) {
     renderCreate();
@@ -406,6 +457,12 @@ async function render() {
     return;
   }
   armAutoLock();
+  if (needsMigration) {
+    app.append(renderMigrationBanner());
+  }
+  if (migrationRecoverySecret) {
+    app.append(renderMigrationRecoveryBanner());
+  }
   if (unlockedViaRecovery) {
     const banner = el("div", { class: "banner banner-warn" });
     banner.append(
@@ -480,8 +537,8 @@ function renderCreate() {
   const btn = el("button", { class: "primary", text: "Create vault" }) as HTMLButtonElement;
   btn.addEventListener("click", async () => {
     setError(card, null);
-    if (pw.value.length < 8) {
-      setError(card, "Use at least 8 characters (longer is much better).");
+    if (pw.value.length < 12) {
+      setError(card, "Use at least 12 characters (longer is much better).");
       return;
     }
     if (pw.value !== pw2.value) {
@@ -490,9 +547,11 @@ function renderCreate() {
     }
     btn.disabled = true;
     const kdf_profile = defaultKdfProfile();
+    const passphrase = takePassword(pw);
+    takePassword(pw2);
     const resp = await client.request({
       op: "create_vault",
-      passphrase: pw.value,
+      passphrase,
       kdf_profile,
     });
     btn.disabled = false;
@@ -519,7 +578,7 @@ function renderCreate() {
   importCard.append(
     el("p", {
       class: "hint",
-      text: "Restore an encrypted .aegis export. Best way to move or re-sync browsers without Freenet.",
+      text: "Restore as a new v2 vault. The backup passphrase only decrypts the file — choose a separate 12+ character passphrase for the new live vault. They are never reused automatically.",
     }),
   );
   const fileInput = el("input", {
@@ -528,8 +587,13 @@ function renderCreate() {
   }) as HTMLInputElement;
   const importPw = el("input", {
     type: "password",
-    placeholder: "Export passphrase",
+    placeholder: "Backup / export passphrase",
     autocomplete: "off",
+  }) as HTMLInputElement;
+  const newVaultPw = el("input", {
+    type: "password",
+    placeholder: "New v2 vault passphrase",
+    autocomplete: "new-password",
   }) as HTMLInputElement;
   const importBtn = el("button", { text: "Import" }) as HTMLButtonElement;
   importBtn.addEventListener("click", async () => {
@@ -543,12 +607,22 @@ function renderCreate() {
       setError(importCard, "Enter the passphrase used when exporting.");
       return;
     }
+    if (!newVaultPw.value) {
+      setError(
+        importCard,
+        "Enter a new vault passphrase (12+ characters). The backup password is not reused as the live-vault wrap.",
+      );
+      return;
+    }
     importBtn.disabled = true;
     const buf = new Uint8Array(await file.arrayBuffer());
+    const passphrase = takePassword(importPw);
+    const new_passphrase = takePassword(newVaultPw);
     const resp = await client.request({
       op: "import_encrypted",
       blob: buf,
-      passphrase: importPw.value,
+      passphrase,
+      new_passphrase,
       replace: false,
     });
     importBtn.disabled = false;
@@ -559,10 +633,21 @@ function renderCreate() {
     await render();
   });
   importCard.append(el("label", { text: "Backup file" }), fileInput);
-  importCard.append(el("label", { text: "Passphrase" }), importPw);
+  importCard.append(el("label", { text: "Backup / export passphrase" }), importPw);
+  importCard.append(el("label", { text: "New vault passphrase" }), newVaultPw);
   importCard.append(importBtn);
 
-  app.append(card, importCard);
+  const recoverCard = el("div", { class: "card" });
+  recoverCard.append(el("h2", { text: "Disaster recovery (same identity)" }));
+  recoverCard.append(
+    el("p", {
+      class: "hint",
+      text: "The Recovery Kit restores cryptographic identity only — it does not contain passwords. Full restore on an empty install needs the kit, its recovery secret, a normal .aegis backup (for data), and a new live-vault passphrase. Importing a backup without a kit still mints a new identity.",
+    }),
+  );
+  mountRecoveryKitImportForm(recoverCard, { mode: "empty" });
+
+  app.append(card, importCard, recoverCard);
 }
 
 function formatPreviewTs(ts: number | null | undefined): string {
@@ -787,7 +872,7 @@ function mountReplaceImportForm(container: HTMLElement) {
   container.append(
     el("p", {
       class: "hint",
-      text: "Export from the machine with the newest data, then preview and replace here. Overwrites this browser’s vault only.",
+      text: "Export from the machine with the newest data, then preview and replace here. Overwrites this browser’s vault only. Choose a new live-vault passphrase — the backup password is not reused.",
     }),
   );
   const fileInput = el("input", {
@@ -798,6 +883,11 @@ function mountReplaceImportForm(container: HTMLElement) {
     type: "password",
     placeholder: "Export passphrase",
     autocomplete: "off",
+  }) as HTMLInputElement;
+  const newVaultPw = el("input", {
+    type: "password",
+    placeholder: "New v2 vault passphrase",
+    autocomplete: "new-password",
   }) as HTMLInputElement;
   const localPw = el("input", {
     type: "password",
@@ -845,13 +935,23 @@ function mountReplaceImportForm(container: HTMLElement) {
       setError(container, "Enter the passphrase used when exporting.");
       return;
     }
+    if (!newVaultPw.value) {
+      setError(
+        container,
+        "Enter a new vault passphrase (12+ characters) for the restored v2 vault.",
+      );
+      return;
+    }
     importBtn.disabled = true;
     previewBtn.disabled = true;
     const buf = new Uint8Array(await file.arrayBuffer());
+    const passphrase = takePassword(importPw);
+    const new_passphrase = takePassword(newVaultPw);
     const resp = await client.request({
       op: "import_encrypted",
       blob: buf,
-      passphrase: importPw.value,
+      passphrase,
+      new_passphrase,
       replace: true,
     });
     importBtn.disabled = false;
@@ -869,11 +969,13 @@ function mountReplaceImportForm(container: HTMLElement) {
     if (!buf) return;
     previewBtn.disabled = true;
     importBtn.disabled = true;
+    const local = localPw.value.trim();
+    takePassword(localPw);
     const resp = await client.request({
       op: "preview_import",
       blob: buf,
-      passphrase: importPw.value,
-      local_passphrase: localPw.value.trim() || null,
+      passphrase: takePassword(importPw),
+      local_passphrase: local || null,
     });
     previewBtn.disabled = false;
     importBtn.disabled = false;
@@ -907,11 +1009,141 @@ function mountReplaceImportForm(container: HTMLElement) {
 
   container.append(el("label", { text: "Backup file" }), fileInput);
   container.append(el("label", { text: "Export passphrase" }), importPw);
+  container.append(el("label", { text: "New vault passphrase" }), newVaultPw);
   container.append(
     el("label", { text: "Local master passphrase (optional)" }),
     localPw,
   );
   container.append(row);
+}
+
+function recoveryIdentityWarning(): HTMLElement {
+  const box = el("div", { class: "recovery-warning" });
+  box.append(
+    el("p", {}, [
+      el("strong", {
+        text: "Anyone with this Recovery Kit AND its recovery secret can assume control of this vault identity.",
+      }),
+    ]),
+    el("p", {
+      text: "Store them separately. The kit is not a backup: it restores cryptographic identity, not a copy of your entries.",
+    }),
+  );
+  return box;
+}
+
+function asKitBytes(kit: Uint8Array | number[] | undefined): Uint8Array {
+  if (!kit) return new Uint8Array();
+  return kit instanceof Uint8Array ? new Uint8Array(kit) : new Uint8Array(kit);
+}
+
+/** Identity-preserving Recovery Kit import. Distinct from normal .aegis backup restore. */
+function mountRecoveryKitImportForm(
+  container: HTMLElement,
+  opts: { mode: "existing" | "empty" },
+) {
+  container.append(recoveryIdentityWarning());
+  container.append(
+    el("p", {
+      class: "hint",
+      text:
+        opts.mode === "existing"
+          ? "Forgot the master passphrase? The Recovery Kit plus its secret re-wraps this vault under a new passphrase. The old passphrase is not required. The recovery secret is not the new passphrase. A kit from another vault or an old key epoch is rejected."
+          : "The Recovery Kit does not contain your entries. Choose the kit, its recovery secret, a normal .aegis backup of this same vault, and a new live-vault passphrase.",
+    }),
+  );
+  const fileInput = el("input", {
+    type: "file",
+    accept: ".aegis-recovery,application/octet-stream",
+  }) as HTMLInputElement;
+  const secret = el("input", {
+    type: "text",
+    placeholder: "Recovery secret (AEGIS2-…)",
+    autocomplete: "off",
+    spellcheck: "false",
+    class: "mono",
+  }) as HTMLInputElement;
+  const backupInput = el("input", {
+    type: "file",
+    accept: ".aegis,application/octet-stream",
+  }) as HTMLInputElement;
+  const backupPw = el("input", {
+    type: "password",
+    placeholder: "Backup passphrase",
+    autocomplete: "off",
+  }) as HTMLInputElement;
+  const newPw = el("input", {
+    type: "password",
+    placeholder: "New v2 vault passphrase (not the recovery secret)",
+    autocomplete: "new-password",
+  }) as HTMLInputElement;
+  const btn = el("button", {
+    class: "primary",
+    text:
+      opts.mode === "existing"
+        ? "Set new passphrase with Recovery Kit"
+        : "Restore identity + backup data",
+  }) as HTMLButtonElement;
+  btn.addEventListener("click", async () => {
+    setError(container, null);
+    const file = fileInput.files?.[0];
+    if (!file) {
+      setError(container, "Choose a Recovery Kit file first.");
+      return;
+    }
+    if (!secret.value.trim()) {
+      setError(container, "Enter the recovery secret. Store it separately from the kit.");
+      return;
+    }
+    if (!newPw.value) {
+      setError(container, "Choose a new master passphrase. It is not the recovery secret.");
+      return;
+    }
+    let backup: Uint8Array | undefined;
+    let backup_passphrase: string | undefined;
+    if (opts.mode === "empty") {
+      const bak = backupInput.files?.[0];
+      if (!bak) {
+        setError(
+          container,
+          "The Recovery Kit cannot restore passwords by itself. Choose a normal .aegis backup of this vault.",
+        );
+        return;
+      }
+      if (!backupPw.value) {
+        setError(container, "Enter the passphrase used when the backup was exported.");
+        return;
+      }
+      backup = new Uint8Array(await bak.arrayBuffer());
+      backup_passphrase = takePassword(backupPw);
+    }
+    btn.disabled = true;
+    const kit = new Uint8Array(await file.arrayBuffer());
+    const recovery_secret = takePassword(secret).trim();
+    const new_passphrase = takePassword(newPw);
+    const resp = await client.request({
+      op: "import_recovery_kit",
+      kit,
+      recovery_secret,
+      new_passphrase,
+      backup,
+      backup_passphrase,
+    });
+    btn.disabled = false;
+    if (resp.type === "error") {
+      setError(container, resp.message);
+      return;
+    }
+    await render();
+  });
+  container.append(el("label", { text: "Recovery Kit (.aegis-recovery)" }), fileInput);
+  container.append(el("label", { text: "Recovery secret" }), secret);
+  if (opts.mode === "empty") {
+    container.append(el("label", { text: "Backup file (.aegis)" }), backupInput);
+    container.append(el("label", { text: "Backup passphrase" }), backupPw);
+  }
+  container.append(el("label", { text: "New vault passphrase" }), newPw);
+  container.append(btn);
 }
 
 function unlockAltSection(
@@ -924,6 +1156,130 @@ function unlockAltSection(
   buildBody(body);
   details.append(body);
   return details;
+}
+
+function renderMigrationBanner(): HTMLElement {
+  const banner = el("div", { class: "banner banner-warn" });
+  banner.append(
+    el("div", {}, [
+      el("strong", { text: "This vault is still v1. " }),
+      el("span", {
+        text: "Migrate to v2 to save changes, export, or change the passphrase. A new recovery secret will be shown once — the old v1 recovery key will stop working.",
+      }),
+    ]),
+  );
+  const pw = el("input", {
+    type: "password",
+    autocomplete: "current-password",
+    placeholder: "Master passphrase",
+  }) as HTMLInputElement;
+  const btn = el("button", {
+    class: "primary",
+    text: "Migrate to v2",
+  }) as HTMLButtonElement;
+  btn.addEventListener("click", async () => {
+    setError(banner, null);
+    if (!pw.value) {
+      setError(banner, "Enter the master passphrase to migrate.");
+      return;
+    }
+    btn.disabled = true;
+    const passphrase = takePassword(pw);
+    const resp = await client.request({ op: "migrate_vault", passphrase });
+    btn.disabled = false;
+    if (resp.type === "error") {
+      setError(banner, resp.message);
+      return;
+    }
+    if (resp.type === "migrated") {
+      migrationRecoverySecret = resp.recovery_secret;
+    }
+    await render();
+  });
+  banner.append(el("label", { text: "Master passphrase" }), pw, btn);
+
+  const rec = el("input", {
+    type: "text",
+    placeholder: "v1 recovery key",
+    autocomplete: "off",
+    spellcheck: "false",
+    class: "mono",
+  }) as HTMLInputElement;
+  const newPw = el("input", {
+    type: "password",
+    autocomplete: "new-password",
+    placeholder: "New v2 passphrase (12+ characters)",
+  }) as HTMLInputElement;
+  const recBtn = el("button", {
+    text: "Migrate with recovery key",
+  }) as HTMLButtonElement;
+  recBtn.addEventListener("click", async () => {
+    setError(banner, null);
+    if (!rec.value.trim()) {
+      setError(banner, "Enter the v1 recovery key.");
+      return;
+    }
+    if (newPw.value.length < 12) {
+      setError(banner, "Choose a new vault passphrase of at least 12 characters.");
+      return;
+    }
+    recBtn.disabled = true;
+    const recovery_key = takePassword(rec).trim();
+    const new_v2_passphrase = takePassword(newPw);
+    const resp = await client.request({
+      op: "migrate_vault_with_recovery",
+      recovery_key,
+      new_v2_passphrase,
+    });
+    recBtn.disabled = false;
+    if (resp.type === "error") {
+      setError(banner, resp.message);
+      return;
+    }
+    if (resp.type === "migrated") {
+      migrationRecoverySecret = resp.recovery_secret;
+    }
+    await render();
+  });
+  banner.append(
+    el("p", {
+      class: "hint",
+      text: "Forgot the master passphrase? Use the original v1 recovery key and choose a new v2 passphrase.",
+    }),
+    el("label", { text: "v1 recovery key" }),
+    rec,
+    el("label", { text: "New v2 passphrase" }),
+    newPw,
+    recBtn,
+  );
+  return banner;
+}
+
+function renderMigrationRecoveryBanner(): HTMLElement {
+  const banner = el("div", { class: "banner" });
+  banner.append(
+    el("div", {}, [
+      el("strong", { text: "Save this v2 recovery secret now. " }),
+      el("span", {
+        text: "It is not stored in the vault. The old v1 recovery key cannot unlock this vault.",
+      }),
+    ]),
+  );
+  const keyBox = el("pre", { class: "recovery-key-display mono" });
+  keyBox.textContent = migrationRecoverySecret ?? "";
+  const copyBtn = el("button", { text: "Copy recovery secret" }) as HTMLButtonElement;
+  copyBtn.addEventListener("click", () => {
+    if (migrationRecoverySecret) {
+      void copySecret(migrationRecoverySecret, "Recovery secret", copyBtn);
+    }
+  });
+  const dismiss = el("button", { text: "I have saved it" }) as HTMLButtonElement;
+  dismiss.addEventListener("click", () => {
+    migrationRecoverySecret = null;
+    banner.remove();
+  });
+  banner.append(keyBox, el("div", { class: "banner-actions" }, [copyBtn, dismiss]));
+  return banner;
 }
 
 function renderUnlock() {
@@ -940,7 +1296,8 @@ function renderUnlock() {
   const submit = async () => {
     setError(card, null);
     btn.disabled = true;
-    const resp = await client.request({ op: "unlock", passphrase: pw.value });
+    const passphrase = takePassword(pw);
+    const resp = await client.request({ op: "unlock", passphrase });
     btn.disabled = false;
     if (resp.type === "error") {
       setError(card, resp.message);
@@ -967,12 +1324,12 @@ function renderUnlock() {
       body.append(
         el("p", {
           class: "hint",
-          text: "If you lost your master passphrase but saved a recovery key, paste it here.",
+          text: "If this device still has the vault and you saved the recovery secret, paste it here. The secret is not stored in the browser.",
         }),
       );
       const rec = el("input", {
         type: "text",
-        placeholder: "AEGIS-XXXX-XXXX-…",
+        placeholder: "Recovery secret (AEGIS2-…)",
         autocomplete: "off",
         spellcheck: "false",
         class: "mono",
@@ -987,9 +1344,10 @@ function renderUnlock() {
           return;
         }
         recBtn.disabled = true;
+        const recovery_key = takePassword(rec).trim();
         const resp = await client.request({
           op: "unlock_with_recovery",
-          recovery_key: rec.value.trim(),
+          recovery_key,
         });
         recBtn.disabled = false;
         if (resp.type === "error") {
@@ -1009,6 +1367,12 @@ function renderUnlock() {
   alts.append(
     unlockAltSection("Replace vault from backup", (body) => {
       mountReplaceImportForm(body);
+    }),
+  );
+
+  alts.append(
+    unlockAltSection("Forgot passphrase (Recovery Kit)", (body) => {
+      mountRecoveryKitImportForm(body, { mode: "existing" });
     }),
   );
 
@@ -1516,6 +1880,7 @@ async function renderVault() {
       class: "entry-row tree-entry",
       role: "treeitem",
       tabindex: "0",
+      "data-entry-id": e.id,
       title: "Click to open · press-and-hold, then drag to a folder",
     });
     const metaParts = [
@@ -1943,15 +2308,16 @@ async function renderVault() {
     clearTotpTimer();
     detailBody.innerHTML = "";
     detailActions.replaceChildren();
-    const name = el("input", { value: entry.name }) as HTMLInputElement;
-    const username = el("input", { value: entry.username }) as HTMLInputElement;
+    const name = el("input", { id: "entry-name", value: entry.name }) as HTMLInputElement;
+    const username = el("input", { id: "entry-username", value: entry.username }) as HTMLInputElement;
     const password = el("input", {
+      id: "entry-password",
       type: "password",
       value: entry.password,
       class: "mono",
     }) as HTMLInputElement;
-    const url = el("input", { value: entry.urls[0] ?? "" }) as HTMLInputElement;
-    const notes = el("textarea", { rows: "3" }) as HTMLTextAreaElement;
+    const url = el("input", { id: "entry-url", value: entry.urls[0] ?? "" }) as HTMLInputElement;
+    const notes = el("textarea", { id: "entry-notes", rows: "3" }) as HTMLTextAreaElement;
     notes.value = entry.notes;
     const totpSecret = el("input", {
       type: "password",
@@ -2239,7 +2605,7 @@ async function renderVault() {
     });
 
     detailBody.append(
-      el("label", { text: "Name" }),
+      el("label", { text: "Name", for: "entry-name" }),
       name,
       el("label", { text: "Folder" }),
       folderSelect,
@@ -2250,12 +2616,12 @@ async function renderVault() {
         class: "hint tag-hint",
         text: "Comma-separated. Shown as pills in the list; click a pill to filter.",
       }),
-      el("label", { text: "Username" }),
+      el("label", { text: "Username", for: "entry-username" }),
       username,
-      el("label", { text: "Password" }),
+      el("label", { text: "Password", for: "entry-password" }),
       pwRow,
       historyBlock,
-      el("label", { text: "URL" }),
+      el("label", { text: "URL", for: "entry-url" }),
       url,
       el("label", { text: "Authenticator (TOTP seed)" }),
       totpSecret,
@@ -2264,7 +2630,7 @@ async function renderVault() {
       el("label", { text: "Custom fields" }),
       fieldsHost,
       addField,
-      el("label", { text: "Notes" }),
+      el("label", { text: "Notes", for: "entry-notes" }),
       notes,
     );
 
@@ -2634,8 +3000,8 @@ function showSettingsModal(
       text: "Change passphrase",
     }) as HTMLButtonElement;
     changeBtn.addEventListener("click", async () => {
-      if (neu.value.length < 8) {
-        window.alert("New passphrase must be at least 8 characters");
+      if (neu.value.length < 12) {
+        window.alert("New passphrase must be at least 12 characters");
         return;
       }
       if (neu.value !== neu2.value) {
@@ -2643,10 +3009,13 @@ function showSettingsModal(
         return;
       }
       changeBtn.disabled = true;
+      const current_passphrase = takePassword(cur);
+      const new_passphrase = takePassword(neu);
+      takePassword(neu2);
       const r = await client.request({
         op: "change_passphrase",
-        current_passphrase: cur.value,
-        new_passphrase: neu.value,
+        current_passphrase,
+        new_passphrase,
         kdf_profile: defaultKdfProfile(),
       });
       changeBtn.disabled = false;
@@ -2654,9 +3023,6 @@ function showSettingsModal(
         window.alert(r.message);
         return;
       }
-      cur.value = "";
-      neu.value = "";
-      neu2.value = "";
       unlockedViaRecovery = false;
       statusNote(modal, "Passphrase updated");
       window.alert("Master passphrase changed successfully.");
@@ -2664,38 +3030,241 @@ function showSettingsModal(
     body.append(cur, neu, neu2, changeBtn);
   });
 
-  // —— Recovery key ——
-  addSection("recovery", "Recovery key", "Offline unlock if passphrase is lost", (body) => {
+  addSection(
+    "rotate",
+    "Rotate cryptographic keys",
+    "New RootSecret / new epoch — does not run on unlock",
+    (body) => {
+      body.append(
+        el("p", {
+          class: "hint",
+          text: "For suspected compromise. Generates a fresh RootSecret, re-encrypts the vault, and increments key_epoch. Your vault ID stays the same. Full rotation also mints new X25519 and ML-KEM sharing identities: outstanding/unopened share envelopes addressed to the old identity cannot be opened afterward. Previously imported entries are unaffected. Provide the current recovery secret to preserve it; leave blank to retire the previous Recovery Kit and mint a new secret (shown once).",
+        }),
+      );
+      const pw = el("input", {
+        type: "password",
+        placeholder: "Current master passphrase",
+        autocomplete: "current-password",
+      }) as HTMLInputElement;
+      const rec = el("input", {
+        type: "text",
+        placeholder: "Current recovery secret to preserve it; blank replaces it",
+        autocomplete: "off",
+        spellcheck: "false",
+        class: "mono",
+      }) as HTMLInputElement;
+      const btn = el("button", {
+        class: "danger",
+        text: "Rotate keys",
+      }) as HTMLButtonElement;
+      const out = el("div", { class: "recovery-out hidden" });
+      btn.addEventListener("click", async () => {
+        if (
+          !confirm(
+            "Rotate all vault cryptographic keys? This cannot be undone. Old backups still restore as a new identity; the live vault will use a new RootSecret.",
+          )
+        ) {
+          return;
+        }
+        btn.disabled = true;
+        const passphrase = takePassword(pw);
+        const recovery_key = rec.value.trim() ? takePassword(rec).trim() : null;
+        const r = await client.request({
+          op: "rotate_keys",
+          passphrase,
+          recovery_key,
+        });
+        btn.disabled = false;
+        if (r.type === "error") {
+          window.alert(r.message);
+          return;
+        }
+        if (r.type !== "rotated") {
+          window.alert("Unexpected response");
+          return;
+        }
+        statusNote(modal, `Keys rotated (epoch ${r.key_epoch})`);
+        if (r.recovery_secret) {
+          out.classList.remove("hidden");
+          out.replaceChildren();
+          out.append(
+            el("p", {
+              class: "hint",
+              text: "Save this new recovery secret now. The previous recovery key no longer unlocks this vault.",
+            }),
+          );
+          const box = el("pre", { class: "recovery-key-display mono" });
+          box.textContent = r.recovery_secret;
+          out.append(box);
+        }
+      });
+      body.append(pw, rec, btn, out);
+    },
+  );
+
+  addSection(
+    "share",
+    "Hybrid share",
+    "X25519 + ML-KEM-768 — both keys are one identity",
+    (body) => {
+      body.append(
+        el("p", {
+          class: "hint",
+          text: "Export your share identity for someone else to address. Create a share of an entry for a recipient identity file. Opening a share requires the sender’s identity file — envelope keys are not trusted as a named sender. Identities are epoch-bound: rotating cryptographic keys invalidates unopened shares to the old identity.",
+        }),
+      );
+      const exportId = el("button", { text: "Export my share identity" }) as HTMLButtonElement;
+      exportId.addEventListener("click", async () => {
+        const r = await client.request({ op: "export_share_identity" });
+        if (r.type === "error") {
+          window.alert(r.message);
+          return;
+        }
+        if (r.type !== "share_identity") {
+          window.alert("Unexpected response");
+          return;
+        }
+        downloadBytes(r.blob, "aegis-share-identity.bin");
+      });
+      const entryId = el("input", {
+        type: "text",
+        placeholder: "Entry id to share",
+        class: "mono",
+      }) as HTMLInputElement;
+      const recipFile = el("input", { type: "file" }) as HTMLInputElement;
+      const createBtn = el("button", { text: "Create share envelope" }) as HTMLButtonElement;
+      createBtn.addEventListener("click", async () => {
+        const file = recipFile.files?.[0];
+        if (!file || !entryId.value.trim()) {
+          window.alert("Choose a recipient identity file and an entry id.");
+          return;
+        }
+        const recipient_identity = new Uint8Array(await file.arrayBuffer());
+        const r = await client.request({
+          op: "create_share",
+          entry_id: entryId.value.trim(),
+          recipient_identity,
+        });
+        if (r.type === "error") {
+          window.alert(r.message);
+          return;
+        }
+        if (r.type !== "share_envelope") {
+          window.alert("Unexpected response");
+          return;
+        }
+        downloadBytes(r.blob, "aegis-share.bin");
+      });
+      const openFile = el("input", { type: "file" }) as HTMLInputElement;
+      const senderFile = el("input", { type: "file" }) as HTMLInputElement;
+      const openBtn = el("button", { text: "Open share envelope" }) as HTMLButtonElement;
+      openBtn.addEventListener("click", async () => {
+        const file = openFile.files?.[0];
+        const sender = senderFile.files?.[0];
+        if (!file || !sender) {
+          window.alert("Choose a share envelope and the sender’s identity file.");
+          return;
+        }
+        const envelope = new Uint8Array(await file.arrayBuffer());
+        const expected_sender_identity = new Uint8Array(await sender.arrayBuffer());
+        const r = await client.request({
+          op: "open_share",
+          envelope,
+          expected_sender_identity,
+        });
+        if (r.type === "error") {
+          window.alert(r.message);
+          return;
+        }
+        if (r.type !== "entry") {
+          window.alert("Unexpected response");
+          return;
+        }
+        window.alert(`Opened share: ${r.entry.name} (${r.entry.id})`);
+      });
+      body.append(
+        exportId,
+        entryId,
+        recipFile,
+        createBtn,
+        el("p", { class: "hint", text: "Envelope file, then sender identity file:" }),
+        openFile,
+        senderFile,
+        openBtn,
+      );
+    },
+  );
+
+  // —— Recovery Kit ——
+  addSection("recovery", "Recovery Kit", "Identity-preserving disaster recovery", (body) => {
+    body.append(recoveryIdentityWarning());
     body.append(
       el("p", {
         class: "hint",
-        text: "A one-time high-entropy key that unlocks the vault if you forget your passphrase. Store it offline (password manager, paper, safe). Generating a new key replaces any previous one.",
+        text: "Aegis generates a 256-bit recovery secret — you do not choose it. Download the Recovery Kit file and store the secret somewhere else. Generating a new kit retires the previous recovery credential. This is not a .aegis backup.",
       }),
     );
     const genRec = el("button", {
-      text: "Generate recovery key",
+      class: "primary",
+      text: "Generate Recovery Kit",
+    }) as HTMLButtonElement;
+    const exportRec = el("button", {
+      text: "Re-download Recovery Kit",
     }) as HTMLButtonElement;
     const revRec = el("button", {
       class: "danger",
-      text: "Revoke recovery key",
+      text: "Revoke Recovery Kit",
     }) as HTMLButtonElement;
     const recOut = el("div", { class: "recovery-out hidden" });
     const busyRow = el("div", { class: "busy-row hidden" });
     busyRow.append(
       el("span", { class: "spinner spinner-lg", "aria-hidden": "true" }),
-      el("span", {
-        text: "Generating recovery key… (deriving key — may take a few seconds)",
-      }),
+      el("span", { text: "Generating Recovery Kit…" }),
     );
+
+    const showSecretOnce = (secret: string, kit: Uint8Array | number[]) => {
+      recOut.classList.remove("hidden");
+      recOut.innerHTML = "";
+      recOut.append(recoveryIdentityWarning());
+      recOut.append(
+        el("p", {
+          class: "hint",
+          text: "The Recovery Kit file is downloading. Copy the recovery secret now — it is not stored in the browser and will not be shown again. Store the two separately.",
+        }),
+      );
+      const keyBox = el("div", {
+        class: "recovery-key-display mono",
+        role: "textbox",
+        "aria-readonly": "true",
+        tabindex: "0",
+      });
+      keyBox.textContent = secret;
+      const copy = el("button", {
+        class: "primary",
+        text: "Copy recovery secret",
+      }) as HTMLButtonElement;
+      copy.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        void copySecret(secret, "Recovery secret", copy);
+      });
+      recOut.append(keyBox, copy);
+      const bytes = asKitBytes(kit);
+      if (bytes.length > 0) {
+        downloadBytes(bytes, "vault.aegis-recovery");
+      }
+    };
+
     genRec.addEventListener("click", async () => {
       if (
         !confirm(
-          "Generate a new recovery key? Any previous recovery key will stop working. You will only see the new key once.",
+          "Generate a new Recovery Kit and recovery secret? Any previous Recovery Kit and secret will stop working. You will only see the new secret once. Store the kit file and the secret separately.",
         )
       ) {
         return;
       }
       genRec.disabled = true;
+      exportRec.disabled = true;
       revRec.disabled = true;
       busyRow.classList.remove("hidden");
       recOut.classList.add("hidden");
@@ -2709,61 +3278,34 @@ function showSettingsModal(
           return;
         }
         if (r.type !== "recovery_key") return;
-        recOut.classList.remove("hidden");
-        recOut.innerHTML = "";
-        recOut.append(
-          el("p", {
-            class: "hint",
-            text: "Copy and store this key now. It will not be shown again.",
-          }),
-        );
-        const keyBox = el("div", {
-          class: "recovery-key-display mono",
-          role: "textbox",
-          "aria-readonly": "true",
-          tabindex: "0",
-        });
-        keyBox.textContent = r.recovery_key;
-        const copy = el("button", {
-          class: "primary",
-          text: "Copy recovery key",
-        }) as HTMLButtonElement;
-        copy.addEventListener("click", (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-          void (async () => {
-            try {
-              if (navigator.clipboard?.writeText) {
-                await navigator.clipboard.writeText(r.recovery_key);
-              } else if (!copyViaTextarea(r.recovery_key)) {
-                throw new Error("copy failed");
-              }
-              statusNote(modal, "Recovery key copied — store it offline");
-            } catch {
-              // Last resort: select the key display so user can Ctrl+C
-              const box = recOut.querySelector(".recovery-key-display") as HTMLElement | null;
-              if (box) {
-                const range = document.createRange();
-                range.selectNodeContents(box);
-                const sel = window.getSelection();
-                sel?.removeAllRanges();
-                sel?.addRange(range);
-              }
-              statusNote(modal, "Select the key and press Ctrl+C / ⌘C to copy");
-            }
-          })();
-        });
-        recOut.append(keyBox, copy);
+        showSecretOnce(r.recovery_key, r.kit ?? []);
+        statusNote(modal, "Previous recovery credential retired. Save the new secret separately from the kit file.");
       } finally {
         busyRow.classList.add("hidden");
         genRec.disabled = false;
+        exportRec.disabled = false;
         revRec.disabled = false;
       }
+    });
+    exportRec.addEventListener("click", async () => {
+      const r = await client.request({ op: "export_recovery_kit" });
+      if (r.type === "error") {
+        window.alert(r.message);
+        return;
+      }
+      if (r.type !== "recovery_key") return;
+      const bytes = asKitBytes(r.kit);
+      if (bytes.length === 0) {
+        window.alert("No Recovery Kit is configured.");
+        return;
+      }
+      downloadBytes(bytes, "vault.aegis-recovery");
+      statusNote(modal, "Recovery Kit downloaded. The recovery secret is not in this file.");
     });
     revRec.addEventListener("click", async () => {
       if (
         !confirm(
-          "Revoke recovery key? You will only be able to unlock with the master passphrase.",
+          "Revoke the Recovery Kit? Existing kit files and the recovery secret will no longer restore this vault identity. You will only be able to unlock with the master passphrase until you generate a new kit.",
         )
       ) {
         return;
@@ -2775,9 +3317,9 @@ function showSettingsModal(
       }
       recOut.classList.add("hidden");
       recOut.innerHTML = "";
-      statusNote(modal, "Recovery key revoked");
+      statusNote(modal, "Recovery Kit revoked");
     });
-    body.append(genRec, revRec, busyRow, recOut);
+    body.append(genRec, exportRec, revRec, busyRow, recOut);
   });
 
   modal.append(accordion);

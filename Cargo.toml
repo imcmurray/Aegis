@@ -14,7 +14,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ianm/Aegis"
-rust-version = "1.80"
+rust-version = "1.85"
 
 [workspace.dependencies]
 aegis-common = { path = "common" }
@@ -39,6 +39,8 @@ zeroize = { version = "1", features = ["derive"] }
 subtle = "2"
 hex = "0.4"
 bs58 = "0.5"
+ml-dsa = "0.1.1"
+ml-kem = "0.3.2"
 
 # Freenet
 freenet-stdlib = { version = "0.8.4", default-features = false }

@@ -3,15 +3,19 @@
 use crate::crypto::{
     derive_keys, generate_password, generate_recovery_key_display, normalize_recovery_key, open,
     seal, unwrap_master, unwrap_master_with_aad, wrap_existing_master,
-    wrap_existing_master_with_aad, wrap_master, DerivedKeys, EnvelopeKind, KdfProfile,
-    MasterEnvelope, SecretKey, SealedBlob,
+    wrap_existing_master_with_aad, DerivedKeys, EnvelopeKind, KdfProfile, MasterEnvelope,
+    SecretKey, SealedBlob,
 };
+#[cfg(any(test, feature = "v1-fixtures"))]
+use crate::crypto::wrap_master;
 use crate::health::analyze_entries;
 use crate::messages::{ErrorCode, ImportEntryChange, VaultRequest, VaultResponse};
 use crate::types::{
     new_id, unix_now, AuditEvent, AuditKind, Entry, EntryId, EntrySummary, Folder, Tombstone,
-    VaultDocument, VaultMeta,
+    VaultDocument,
 };
+#[cfg(any(test, feature = "v1-fixtures"))]
+use crate::types::VaultMeta;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -25,7 +29,7 @@ pub const SECRET_SYNC_COUNTER: &[u8] = b"aegis/v1/sync-counter";
 pub const SECRET_SYNC_STATE: &[u8] = b"aegis/v1/sync-state";
 /// MasterSecret wrapped under recovery key (AAD logical id `recovery`).
 pub const SECRET_RECOVERY: &[u8] = b"aegis/v1/recovery-envelope";
-const RECOVERY_AAD: &[u8] = b"recovery";
+pub(crate) const RECOVERY_AAD: &[u8] = b"recovery";
 
 #[derive(Debug, Error)]
 pub enum VaultError {
@@ -35,19 +39,112 @@ pub enum VaultError {
     Crypto(#[from] crate::crypto::CryptoError),
     #[error("serde: {0}")]
     Serde(String),
+    #[error("migration required before this operation")]
+    MigrationRequired,
+    #[error("VaultSync identity cannot be migrated in Phase 5")]
+    VaultSyncMigrationDeferred,
 }
 
 impl VaultError {
     pub fn code(&self) -> ErrorCode {
         match self {
             VaultError::Crypto(crate::crypto::CryptoError::Decrypt) => ErrorCode::AuthFailed,
+            VaultError::Crypto(crate::crypto::CryptoError::UnauthorizedShareIdentity)
+            | VaultError::Crypto(crate::crypto::CryptoError::UnauthorizedShareSender)
+            | VaultError::Crypto(crate::crypto::CryptoError::UnauthorizedSyncIdentity)
+            | VaultError::Crypto(crate::crypto::CryptoError::ZeroSharedSecret)
+            | VaultError::Crypto(crate::crypto::CryptoError::HybridSignatureRejected) => {
+                ErrorCode::Crypto
+            }
+            VaultError::Crypto(crate::crypto::CryptoError::WeakPassphrase) => {
+                ErrorCode::InvalidRequest
+            }
             VaultError::Crypto(_) => ErrorCode::Crypto,
+            VaultError::MigrationRequired => ErrorCode::MigrationRequired,
+            VaultError::VaultSyncMigrationDeferred => ErrorCode::VaultSyncMigrationDeferred,
             VaultError::Msg(m) if m.contains("locked") => ErrorCode::Locked,
             VaultError::Msg(m) if m.contains("exists") => ErrorCode::AlreadyExists,
             VaultError::Msg(m) if m.contains("not found") => ErrorCode::NotFound,
+            VaultError::Msg(m) if m.contains("expected_sender_identity") => {
+                ErrorCode::InvalidRequest
+            }
+            VaultError::Msg(m)
+                if m.contains("invalid recovery")
+                    || m.contains("v1 recovery")
+                    || m.contains("recovery kit")
+                    || m.contains("not a Recovery Kit")
+                    || m.contains("does not match")
+                    || m.contains("identity only")
+                    || m.contains("cannot open current")
+                    || m.contains("backup passphrase is required") =>
+            {
+                ErrorCode::InvalidRequest
+            }
             _ => ErrorCode::Internal,
         }
     }
+}
+
+/// Unlocked production session: v1 (read-only until migrate) or v2.
+pub enum ActiveSession {
+    V1(VaultSession),
+    V2(crate::session_v2::VaultSessionV2),
+}
+
+impl ActiveSession {
+    pub fn vault_id_hex(&self) -> String {
+        match self {
+            Self::V1(s) => s.doc.meta.vault_id.clone(),
+            Self::V2(s) => s.doc.meta.vault_id.clone(),
+        }
+    }
+
+    pub fn is_v1(&self) -> bool {
+        matches!(self, Self::V1(_))
+    }
+
+    pub fn doc(&self) -> &crate::types::VaultDocument {
+        match self {
+            Self::V1(s) => &s.doc,
+            Self::V2(s) => &s.doc,
+        }
+    }
+
+    fn handle(
+        &mut self,
+        store: &mut dyn SecretStore,
+        req: VaultRequest,
+    ) -> Result<VaultResponse, VaultError> {
+        match self {
+            Self::V1(s) => s.handle(store, req),
+            Self::V2(s) => s.handle(store, req),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PersistedFormat {
+    None,
+    V1,
+    V2,
+}
+
+pub fn detect_persisted_format(store: &dyn SecretStore) -> Result<PersistedFormat, VaultError> {
+    if let Some(bytes) = store.get(crate::session_v2::SECRET_ENVELOPE_V2) {
+        if bytes.starts_with(crate::crypto::MAGIC_VAULT_V2) {
+            if bytes.len() > crate::crypto::MAGIC_VAULT_V2.len()
+                && bytes[crate::crypto::MAGIC_VAULT_V2.len()] == crate::crypto::CONTAINER_VERSION_V2
+            {
+                return Ok(PersistedFormat::V2);
+            }
+            return Err(VaultError::Msg("malformed v2 envelope".into()));
+        }
+        return Err(VaultError::Msg("malformed v2 envelope".into()));
+    }
+    if store.has(SECRET_ENVELOPE) {
+        return Ok(PersistedFormat::V1);
+    }
+    Ok(PersistedFormat::None)
 }
 
 /// Export file format: envelope + sealed vault under export passphrase (re-wrap).
@@ -58,6 +155,66 @@ pub struct ExportBundle {
     pub vault: SealedBlob,
 }
 
+/// One mutation in a [`SecretStore::commit`] batch (D14).
+#[derive(Debug, Clone)]
+pub enum StoreOp {
+    Put { key: Vec<u8>, value: Vec<u8> },
+    Delete { key: Vec<u8> },
+}
+
+impl StoreOp {
+    pub fn put(key: impl Into<Vec<u8>>, value: impl Into<Vec<u8>>) -> Self {
+        Self::Put {
+            key: key.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn delete(key: impl Into<Vec<u8>>) -> Self {
+        Self::Delete { key: key.into() }
+    }
+}
+
+pub(crate) fn apply_store_ops(
+    map: &mut std::collections::HashMap<Vec<u8>, Vec<u8>>,
+    ops: &[StoreOp],
+) {
+    for op in ops {
+        match op {
+            StoreOp::Put { key, value } => {
+                map.insert(key.clone(), value.clone());
+            }
+            StoreOp::Delete { key } => {
+                map.remove(key);
+            }
+        }
+    }
+}
+
+/// Keys that belong to one vault instance and must swap together on import.
+pub const VAULT_INSTANCE_KEYS: &[&[u8]] = &[
+    SECRET_ENVELOPE,
+    SECRET_VAULT,
+    SECRET_AUDIT,
+    SECRET_SESSION,
+    SECRET_SYNC_COUNTER,
+    SECRET_SYNC_STATE,
+    SECRET_RECOVERY,
+];
+
+/// v2 durable keys. Not included in [`VAULT_INSTANCE_KEYS`] so v1-replace
+/// commits that delete-then-put cannot clobber a freshly written v2 envelope.
+pub const SECRET_KEYS_V2: &[&[u8]] = &[
+    crate::session_v2::SECRET_ENVELOPE_V2,
+    crate::session_v2::SECRET_VAULT_V2,
+    crate::session_v2::SECRET_AUDIT_V2,
+    crate::recovery_v2::SECRET_RECOVERY_V2,
+    crate::sync_v2::SECRET_SYNC_STATE_V2,
+    crate::sync_v2::SECRET_SYNC_ACCEPTED_V2,
+    crate::sync_v2::SECRET_SYNC_COUNTER_V2,
+    crate::sync_v2::SECRET_SYNC_TRANSITION_V2,
+];
+
 /// Abstract secret storage so logic can run in unit tests without Freenet.
 pub trait SecretStore {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>>;
@@ -66,7 +223,17 @@ pub trait SecretStore {
     fn has(&self, key: &[u8]) -> bool {
         self.get(key).is_some()
     }
+
+    /// Apply `ops` as one unit. On error, previous durable state is unchanged.
+    ///
+    /// Backends that cannot do this MUST return [`UNSUPPORTED_ATOMIC_COMMIT`]
+    /// rather than applying `ops` sequentially.
+    fn commit(&mut self, ops: &[StoreOp]) -> Result<(), String>;
 }
+
+/// Returned by backends that cannot implement D14 (never sequential multi-key writes).
+pub const UNSUPPORTED_ATOMIC_COMMIT: &str =
+    "unsupported atomic commit: backend cannot switch a vault in one generation pointer";
 
 /// Simple HashMap-backed store for tests and browser WASM.
 #[derive(Default, Clone)]
@@ -101,6 +268,39 @@ impl MemoryStore {
         }
         Ok(())
     }
+
+    /// Sorted durable (non-session) pairs for equality checks.
+    pub fn durable_pairs(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
+        let mut pairs: Vec<(Vec<u8>, Vec<u8>)> = self
+            .map
+            .iter()
+            .filter(|(k, _)| k.as_slice() != SECRET_SESSION)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        pairs
+    }
+
+    /// Every stored pair, including a leftover session key (for secret scans).
+    pub fn all_pairs(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
+        let mut pairs: Vec<(Vec<u8>, Vec<u8>)> = self
+            .map
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        pairs
+    }
+
+    /// True if `needle` appears as a contiguous substring of any stored value.
+    pub fn contains_plaintext(&self, needle: &[u8]) -> bool {
+        if needle.is_empty() {
+            return false;
+        }
+        self.map.values().any(|v| {
+            v.windows(needle.len()).any(|w| w == needle)
+        })
+    }
 }
 
 impl SecretStore for MemoryStore {
@@ -115,6 +315,13 @@ impl SecretStore for MemoryStore {
     fn remove(&mut self, key: &[u8]) {
         self.map.remove(key);
     }
+
+    fn commit(&mut self, ops: &[StoreOp]) -> Result<(), String> {
+        let mut next = self.map.clone();
+        apply_store_ops(&mut next, ops);
+        self.map = next;
+        Ok(())
+    }
 }
 
 /// Unlocked vault session.
@@ -123,9 +330,15 @@ pub struct VaultSession {
     pub keys: DerivedKeys,
     pub doc: VaultDocument,
     pub audit: Vec<AuditEvent>,
+    /// Production v1 unlock: reads allowed, persisted writes require migration.
+    pub(crate) readonly: bool,
 }
 
 impl VaultSession {
+    /// Mint a v1 vault. Production create is v2 (`VaultSessionV2::create` /
+    /// `dispatch(CreateVault)`). Available only in unit tests and the explicit
+    /// `v1-fixtures` feature (frozen fixture regen / compatibility tests).
+    #[cfg(any(test, feature = "v1-fixtures"))]
     pub fn create(
         store: &mut dyn SecretStore,
         passphrase: &str,
@@ -156,6 +369,7 @@ impl VaultSession {
             keys,
             doc,
             audit: Vec::new(),
+            readonly: false,
         };
         session.audit_push(AuditKind::CreateVault, None, "vault created");
         session.persist(store)?;
@@ -191,13 +405,14 @@ impl VaultSession {
             keys,
             doc,
             audit,
+            readonly: true,
         };
         session.audit_push(AuditKind::Unlock, None, "unlocked");
-        session.persist_audit(store)?;
-        session.persist_session_flag(store);
         Ok(session)
     }
 
+    /// Resume a leftover v1 `SECRET_SESSION`. Not a production unlock path.
+    #[cfg(any(test, feature = "v1-fixtures"))]
     pub fn try_resume(store: &dyn SecretStore) -> Result<Option<Self>, VaultError> {
         let Some(master_bytes) = store.get(SECRET_SESSION) else {
             return Ok(None);
@@ -227,6 +442,7 @@ impl VaultSession {
             ciborium::from_reader(pt.as_slice()).map_err(|e| VaultError::Serde(e.to_string()))?;
         let audit = load_audit(store, &keys, &envelope.vault_id).unwrap_or_default();
         Ok(Some(Self {
+            readonly: false,
             master,
             keys,
             doc,
@@ -240,7 +456,11 @@ impl VaultSession {
         store.remove(SECRET_SESSION);
     }
 
+    #[cfg(any(test, feature = "v1-fixtures"))]
     fn persist_session_flag(&self, store: &mut dyn SecretStore) {
+        if self.readonly {
+            return;
+        }
         store.set(SECRET_SESSION, self.master.as_bytes());
     }
 
@@ -248,7 +468,16 @@ impl VaultSession {
     /// (callers that mutate data should set it). Auto-bump here made every
     /// post-sync persist change the content hash so the next Sync always
     /// re-published.
+    fn require_writable(&self) -> Result<(), VaultError> {
+        if self.readonly {
+            Err(VaultError::MigrationRequired)
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn persist(&mut self, store: &mut dyn SecretStore) -> Result<(), VaultError> {
+        self.require_writable()?;
         let mut pt = Vec::new();
         ciborium::into_writer(&self.doc, &mut pt).map_err(|e| VaultError::Serde(e.to_string()))?;
         let sealed = seal(
@@ -273,6 +502,9 @@ impl VaultSession {
     }
 
     fn persist_audit(&self, store: &mut dyn SecretStore) -> Result<(), VaultError> {
+        if self.readonly {
+            return Ok(());
+        }
         let mut pt = Vec::new();
         ciborium::into_writer(&self.audit, &mut pt)
             .map_err(|e| VaultError::Serde(e.to_string()))?;
@@ -483,9 +715,13 @@ impl VaultSession {
                     store,
                     kdf_profile.unwrap_or(KdfProfile::Interactive),
                 )?;
-                Ok(VaultResponse::RecoveryKey { recovery_key: key })
+                Ok(VaultResponse::RecoveryKey {
+                    recovery_key: key,
+                    kit: Vec::new(),
+                })
             }
             VaultRequest::RevokeRecoveryKey => {
+                self.require_writable()?;
                 store.remove(SECRET_RECOVERY);
                 self.audit_push(AuditKind::RevokeRecovery, None, "recovery key revoked");
                 self.persist_audit(store)?;
@@ -493,6 +729,7 @@ impl VaultSession {
             }
             // UnlockWithRecovery handled at dispatch (no session yet).
             VaultRequest::ExportEncrypted { passphrase } => {
+                self.require_writable()?;
                 let blob = self.export_bundle(&passphrase)?;
                 self.audit_push(AuditKind::Export, None, "exported vault");
                 self.persist_audit(store)?;
@@ -515,9 +752,17 @@ impl VaultSession {
             | VaultRequest::UnlockWithRecovery { .. }
             | VaultRequest::Status
             | VaultRequest::ImportEncrypted { .. }
-            | VaultRequest::PreviewImport { .. } => Err(VaultError::Msg(
+            | VaultRequest::ImportRecoveryKit { .. }
+            | VaultRequest::PreviewImport { .. }
+            | VaultRequest::MigrateVault { .. }
+            | VaultRequest::MigrateVaultWithRecovery { .. } => Err(VaultError::Msg(
                 "request must be handled by dispatcher".into(),
             )),
+            VaultRequest::RotateKeys { .. }
+            | VaultRequest::ExportShareIdentity
+            | VaultRequest::ExportRecoveryKit
+            | VaultRequest::CreateShare { .. }
+            | VaultRequest::OpenShare { .. } => Err(VaultError::MigrationRequired),
         }
     }
 
@@ -527,6 +772,7 @@ impl VaultSession {
         store: &mut dyn SecretStore,
         profile: KdfProfile,
     ) -> Result<String, VaultError> {
+        self.require_writable()?;
         let display = generate_recovery_key_display();
         let normalized = normalize_recovery_key(&display);
         let env = wrap_existing_master_with_aad(
@@ -574,10 +820,9 @@ impl VaultSession {
             keys,
             doc,
             audit,
+            readonly: true,
         };
         session.audit_push(AuditKind::UnlockRecovery, None, "unlocked with recovery key");
-        session.persist_audit(store)?;
-        session.persist_session_flag(store);
         Ok(session)
     }
 
@@ -589,6 +834,7 @@ impl VaultSession {
         new: &str,
         profile: KdfProfile,
     ) -> Result<(), VaultError> {
+        self.require_writable()?;
         if new.len() < 8 {
             return Err(VaultError::Msg(
                 "new passphrase must be at least 8 characters".into(),
@@ -728,25 +974,57 @@ fn load_audit(
     ciborium::from_reader(pt.as_slice()).map_err(|e| VaultError::Serde(e.to_string()))
 }
 
-/// Clear vault-related secrets (for replace-import). Does not touch unrelated keys.
+/// Clear vault-related secrets. Prefer [`SecretStore::commit`] for import.
 pub fn clear_vault_secrets(store: &mut dyn SecretStore) {
-    for key in [
-        SECRET_ENVELOPE,
-        SECRET_VAULT,
-        SECRET_AUDIT,
-        SECRET_SESSION,
-        SECRET_SYNC_COUNTER,
-        SECRET_SYNC_STATE,
-        SECRET_RECOVERY,
-    ] {
-        store.remove(key);
-    }
+    let ops: Vec<StoreOp> = VAULT_INSTANCE_KEYS.iter().map(|k| StoreOp::delete(*k)).collect();
+    let _ = store.commit(&ops);
 }
 
-/// Decrypt an export bundle without writing to the store.
-pub fn open_export_document(blob: &[u8], passphrase: &str) -> Result<VaultDocument, VaultError> {
+#[cfg(any(test, feature = "v1-fixtures"))]
+fn seal_vault_blob(keys: &DerivedKeys, doc: &VaultDocument) -> Result<SealedBlob, VaultError> {
+    let mut pt = Vec::new();
+    ciborium::into_writer(doc, &mut pt).map_err(|e| VaultError::Serde(e.to_string()))?;
+    seal(
+        &keys.vault_dek,
+        EnvelopeKind::VaultBlob,
+        doc.meta.vault_id.as_bytes(),
+        b"vault",
+        &pt,
+    )
+    .map_err(Into::into)
+}
+
+#[cfg(any(test, feature = "v1-fixtures"))]
+fn seal_audit_blob(
+    keys: &DerivedKeys,
+    vault_id: &str,
+    audit: &[AuditEvent],
+) -> Result<SealedBlob, VaultError> {
+    let mut pt = Vec::new();
+    ciborium::into_writer(audit, &mut pt).map_err(|e| VaultError::Serde(e.to_string()))?;
+    seal(
+        &keys.vault_dek,
+        EnvelopeKind::AuditBlob,
+        vault_id.as_bytes(),
+        b"audit",
+        &pt,
+    )
+    .map_err(Into::into)
+}
+
+/// Authenticate a v1 export into memory. Does not touch the store.
+fn authenticate_export(
+    blob: &[u8],
+    passphrase: &str,
+) -> Result<(ExportBundle, SecretKey, DerivedKeys, VaultDocument), VaultError> {
     let bundle: ExportBundle =
         ciborium::from_reader(blob).map_err(|e| VaultError::Serde(e.to_string()))?;
+    if bundle.format != 1 {
+        return Err(VaultError::Msg(format!(
+            "unsupported export format {}",
+            bundle.format
+        )));
+    }
     let master = unwrap_master(passphrase, &bundle.envelope)?;
     let keys = derive_keys(&master)?;
     let pt = open(
@@ -755,11 +1033,33 @@ pub fn open_export_document(blob: &[u8], passphrase: &str) -> Result<VaultDocume
         b"export-vault",
         &bundle.vault,
     )?;
-    ciborium::from_reader(pt.as_slice()).map_err(|e| VaultError::Serde(e.to_string()))
+    let doc: VaultDocument =
+        ciborium::from_reader(pt.as_slice()).map_err(|e| VaultError::Serde(e.to_string()))?;
+    if doc.meta.vault_id != bundle.envelope.vault_id {
+        return Err(VaultError::Msg("vault_id mismatch in export".into()));
+    }
+    Ok((bundle, master, keys, doc))
+}
+
+/// Decrypt an export bundle without writing to the store.
+pub fn open_export_document(blob: &[u8], passphrase: &str) -> Result<VaultDocument, VaultError> {
+    let (_, _, _, doc) = authenticate_export(blob, passphrase)?;
+    Ok(doc)
 }
 
 /// Open local vault document with passphrase without starting a session or audit.
 pub fn peek_local_document(
+    store: &dyn SecretStore,
+    passphrase: &str,
+) -> Result<VaultDocument, VaultError> {
+    match detect_persisted_format(store)? {
+        PersistedFormat::V2 => crate::session_v2::peek_document(store, passphrase),
+        PersistedFormat::None => Err(VaultError::Msg("vault not found".into())),
+        PersistedFormat::V1 => peek_local_document_v1(store, passphrase),
+    }
+}
+
+fn peek_local_document_v1(
     store: &dyn SecretStore,
     passphrase: &str,
 ) -> Result<VaultDocument, VaultError> {
@@ -936,17 +1236,21 @@ pub fn build_import_preview(
 /// Preview replace/import: open backup + optional local, return safe diff.
 pub fn preview_import(
     store: &dyn SecretStore,
-    session: Option<&VaultSession>,
+    session: Option<&ActiveSession>,
     blob: &[u8],
     passphrase: &str,
     local_passphrase: Option<&str>,
 ) -> Result<VaultResponse, VaultError> {
-    let backup = open_export_document(blob, passphrase)?;
+    let backup = if blob.starts_with(crate::crypto::MAGIC_BACKUP_V2) {
+        crate::crypto::authenticate_backup(blob, passphrase)?.document
+    } else {
+        open_export_document(blob, passphrase)?
+    };
     let mut note = String::new();
 
     let owned_local: Option<VaultDocument> = if session.is_some() {
         None
-    } else if store.has(SECRET_ENVELOPE) {
+    } else if store.has(SECRET_ENVELOPE) || store.has(crate::session_v2::SECRET_ENVELOPE_V2) {
         let try_pw = local_passphrase
             .filter(|p| !p.is_empty())
             .unwrap_or(passphrase);
@@ -965,46 +1269,75 @@ pub fn preview_import(
         None
     };
 
-    let local_ref = session.map(|s| &s.doc).or(owned_local.as_ref());
+    let local_ref = session.map(|s| s.doc()).or(owned_local.as_ref());
     Ok(build_import_preview(local_ref, &backup, note))
 }
 
-/// Import an export bundle. If `replace`, overwrites an existing vault after wipe.
+pub fn import_production(
+    store: &mut dyn SecretStore,
+    blob: &[u8],
+    backup_passphrase: &str,
+    vault_passphrase: &str,
+    replace: bool,
+) -> Result<crate::session_v2::VaultSessionV2, VaultError> {
+    if blob.starts_with(crate::crypto::MAGIC_BACKUP_V2) {
+        return crate::session_v2::VaultSessionV2::restore_backup(
+            store,
+            blob,
+            backup_passphrase,
+            vault_passphrase,
+            replace,
+        );
+    }
+    if blob.starts_with(crate::crypto::MAGIC_RECOVERY_V2) {
+        return Err(VaultError::Msg(
+            "not a backup file (this is a Recovery Kit — use identity recovery)".into(),
+        ));
+    }
+    if blob.starts_with(crate::crypto::MAGIC_VAULT_V2) {
+        return Err(VaultError::Msg("not a backup file".into()));
+    }
+    let (_bundle, _master, _keys, doc) = authenticate_export(blob, backup_passphrase)?;
+    crate::migrate::restore_document_as_v2(store, doc, Vec::new(), vault_passphrase, replace)
+}
+
+/// Import an export bundle as a **v1** identity. Production import is v2
+/// (`import_production`). Fixture / D14 compatibility tests only.
+#[cfg(any(test, feature = "v1-fixtures"))]
 pub fn import_bundle(
     store: &mut dyn SecretStore,
     blob: &[u8],
     passphrase: &str,
     replace: bool,
 ) -> Result<VaultSession, VaultError> {
-    if store.has(SECRET_ENVELOPE) {
-        if !replace {
-            return Err(VaultError::Msg(
-                "vault already exists (export from the other browser, then import with replace)"
-                    .into(),
-            ));
-        }
-        clear_vault_secrets(store);
+    if store.has(SECRET_ENVELOPE) && !replace {
+        return Err(VaultError::Msg(
+            "vault already exists (export from the other browser, then import with replace)"
+                .into(),
+        ));
     }
-    let bundle: ExportBundle =
-        ciborium::from_reader(blob).map_err(|e| VaultError::Serde(e.to_string()))?;
-    let master = unwrap_master(passphrase, &bundle.envelope)?;
-    let keys = derive_keys(&master)?;
-    let pt = open(
-        &keys.vault_dek,
-        bundle.envelope.vault_id.as_bytes(),
-        b"export-vault",
-        &bundle.vault,
-    )?;
-    let doc: VaultDocument =
-        ciborium::from_reader(pt.as_slice()).map_err(|e| VaultError::Serde(e.to_string()))?;
 
-    store.set(SECRET_ENVELOPE, &bundle.envelope.to_cbor()?);
-    // Re-seal vault as normal vault blob.
+    let (bundle, master, keys, doc) = authenticate_export(blob, passphrase)?;
+
+    let vault_sealed = seal_vault_blob(&keys, &doc)?;
+    let reopened = open(
+        &keys.vault_dek,
+        doc.meta.vault_id.as_bytes(),
+        b"vault",
+        &vault_sealed,
+    )?;
+    let doc2: VaultDocument = ciborium::from_reader(reopened.as_slice())
+        .map_err(|e| VaultError::Serde(e.to_string()))?;
+    if doc2.meta.vault_id != doc.meta.vault_id || doc2.entries.len() != doc.entries.len() {
+        return Err(VaultError::Msg("imported vault failed reopen check".into()));
+    }
+
     let mut session = VaultSession {
         master,
         keys,
         doc,
         audit: Vec::new(),
+        readonly: false,
     };
     session.audit_push(
         AuditKind::Import,
@@ -1015,7 +1348,25 @@ pub fn import_bundle(
             "imported vault"
         },
     );
-    session.persist(store)?;
+    let audit_sealed = seal_audit_blob(
+        &session.keys,
+        &session.doc.meta.vault_id,
+        &session.audit,
+    )?;
+
+    let ops = vec![
+        StoreOp::put(SECRET_ENVELOPE, bundle.envelope.to_cbor()?),
+        StoreOp::put(SECRET_VAULT, vault_sealed.to_cbor()?),
+        StoreOp::put(SECRET_AUDIT, audit_sealed.to_cbor()?),
+        StoreOp::delete(SECRET_RECOVERY),
+        StoreOp::delete(SECRET_SYNC_COUNTER),
+        StoreOp::delete(SECRET_SYNC_STATE),
+        StoreOp::delete(SECRET_SESSION),
+    ];
+    store
+        .commit(&ops)
+        .map_err(|e| VaultError::Msg(format!("atomic commit failed: {e}")))?;
+
     session.persist_session_flag(store);
     Ok(session)
 }
@@ -1042,13 +1393,47 @@ fn save_sync_counter(store: &mut dyn SecretStore, counter: u64) {
 /// Run sync via explicit transport or secret-store MVR (+ optional remote contract bytes).
 fn dispatch_sync(
     store: &mut dyn SecretStore,
-    session: &mut Option<VaultSession>,
+    session: &mut Option<ActiveSession>,
     sync: Option<&mut dyn crate::sync::SyncTransport>,
     remote_state: &[u8],
 ) -> VaultResponse {
     let Some(s) = session.as_mut() else {
         return VaultResponse::err(ErrorCode::Locked, "vault is locked");
     };
+    match s {
+        ActiveSession::V2(s) => {
+            let _ = sync; // v1 FileSyncTransport is not reused for v2.
+            return dispatch_sync_v2(store, s, remote_state);
+        }
+        ActiveSession::V1(s) => {
+            if s.readonly {
+                return VaultResponse::err(
+                    ErrorCode::MigrationRequired,
+                    "migrate this v1 vault before sync",
+                );
+            }
+            return dispatch_sync_v1(store, s, sync, remote_state);
+        }
+    }
+}
+
+fn dispatch_sync_v2(
+    store: &mut dyn SecretStore,
+    s: &mut crate::session_v2::VaultSessionV2,
+    remote_state: &[u8],
+) -> VaultResponse {
+    match s.sync_now_with_publish(store, remote_state) {
+        Ok(r) => r,
+        Err(e) => VaultResponse::err(e.code(), e.to_string()),
+    }
+}
+
+fn dispatch_sync_v1(
+    store: &mut dyn SecretStore,
+    s: &mut VaultSession,
+    sync: Option<&mut dyn crate::sync::SyncTransport>,
+    remote_state: &[u8],
+) -> VaultResponse {
 
     // Dev file transport: no contract blob (file is the multi-process channel).
     if let Some(transport) = sync {
@@ -1099,7 +1484,7 @@ fn dispatch_sync(
 /// `SyncNow` / `SyncWithRemote` use secret-store MVR when no file transport is set.
 pub fn dispatch(
     store: &mut dyn SecretStore,
-    session: &mut Option<VaultSession>,
+    session: &mut Option<ActiveSession>,
     req: VaultRequest,
 ) -> VaultResponse {
     dispatch_with_sync(store, session, req, None)
@@ -1112,64 +1497,180 @@ pub fn dispatch(
 /// [`SECRET_SYNC_STATE`].
 pub fn dispatch_with_sync(
     store: &mut dyn SecretStore,
-    session: &mut Option<VaultSession>,
+    session: &mut Option<ActiveSession>,
     req: VaultRequest,
     sync: Option<&mut dyn crate::sync::SyncTransport>,
 ) -> VaultResponse {
     match req {
         VaultRequest::Status => {
-            let has_vault = store.has(SECRET_ENVELOPE);
+            let fmt = detect_persisted_format(store);
+            let (has_vault, vault_format, needs_migration, has_recovery) = match fmt {
+                Ok(PersistedFormat::V2) => (
+                    true,
+                    Some("v2".into()),
+                    false,
+                    store.has(crate::recovery_v2::SECRET_RECOVERY_V2),
+                ),
+                Ok(PersistedFormat::V1) => (
+                    true,
+                    Some("v1".into()),
+                    true,
+                    store.has(SECRET_RECOVERY),
+                ),
+                Ok(PersistedFormat::None) => (false, None, false, false),
+                Err(_) => (true, Some("unknown".into()), false, false),
+            };
             let unlocked = session.is_some();
-            let vault_id = session.as_ref().map(|s| s.doc.meta.vault_id.clone());
-            let has_recovery = store.has(SECRET_RECOVERY);
+            let vault_id = session.as_ref().map(|s| s.vault_id_hex());
+            let needs_migration = needs_migration || session.as_ref().is_some_and(|s| s.is_v1());
             VaultResponse::Status {
                 has_vault,
                 unlocked,
                 vault_id,
                 has_recovery,
+                vault_format,
+                needs_migration,
             }
         }
-        VaultRequest::CreateVault {
-            passphrase,
-            kdf_profile,
-        } => match VaultSession::create(store, &passphrase, kdf_profile) {
-            Ok(s) => {
-                let vault_id = s.doc.meta.vault_id.clone();
-                *session = Some(s);
-                VaultResponse::Unlocked { vault_id }
-            }
-            Err(e) => VaultResponse::err(e.code(), e.to_string()),
-        },
-        VaultRequest::Unlock { passphrase } => match VaultSession::unlock(store, &passphrase) {
-            Ok(s) => {
-                let vault_id = s.doc.meta.vault_id.clone();
-                *session = Some(s);
-                VaultResponse::Unlocked { vault_id }
-            }
-            Err(e) => VaultResponse::err(e.code(), e.to_string()),
-        },
-        VaultRequest::UnlockWithRecovery { recovery_key } => {
-            match VaultSession::unlock_with_recovery(store, &recovery_key) {
+        VaultRequest::CreateVault { passphrase, .. } => {
+            match crate::session_v2::VaultSessionV2::create(store, &passphrase) {
                 Ok(s) => {
                     let vault_id = s.doc.meta.vault_id.clone();
-                    *session = Some(s);
+                    *session = Some(ActiveSession::V2(s));
                     VaultResponse::Unlocked { vault_id }
                 }
                 Err(e) => VaultResponse::err(e.code(), e.to_string()),
             }
         }
-        VaultRequest::ImportEncrypted {
-            blob,
-            passphrase,
-            replace,
-        } => match import_bundle(store, &blob, &passphrase, replace) {
-            Ok(s) => {
-                let vault_id = s.doc.meta.vault_id.clone();
-                *session = Some(s);
-                VaultResponse::Unlocked { vault_id }
+        VaultRequest::Unlock { passphrase } => match detect_persisted_format(store) {
+            Ok(PersistedFormat::V2) => {
+                match crate::session_v2::VaultSessionV2::unlock(store, &passphrase) {
+                    Ok(s) => {
+                        let vault_id = s.doc.meta.vault_id.clone();
+                        *session = Some(ActiveSession::V2(s));
+                        VaultResponse::Unlocked { vault_id }
+                    }
+                    Err(e) => VaultResponse::err(e.code(), e.to_string()),
+                }
+            }
+            Ok(PersistedFormat::V1) => match VaultSession::unlock(store, &passphrase) {
+                Ok(s) => {
+                    let vault_id = s.doc.meta.vault_id.clone();
+                    *session = Some(ActiveSession::V1(s));
+                    VaultResponse::Unlocked { vault_id }
+                }
+                Err(e) => VaultResponse::err(e.code(), e.to_string()),
+            },
+            Ok(PersistedFormat::None) => {
+                VaultResponse::err(ErrorCode::NotFound, "vault not found")
             }
             Err(e) => VaultResponse::err(e.code(), e.to_string()),
         },
+        VaultRequest::UnlockWithRecovery { recovery_key } => match detect_persisted_format(store)
+        {
+            Ok(PersistedFormat::V2) => {
+                match crate::session_v2::VaultSessionV2::unlock_with_recovery(store, &recovery_key)
+                {
+                    Ok(s) => {
+                        let vault_id = s.doc.meta.vault_id.clone();
+                        *session = Some(ActiveSession::V2(s));
+                        VaultResponse::Unlocked { vault_id }
+                    }
+                    Err(e) => VaultResponse::err(e.code(), e.to_string()),
+                }
+            }
+            Ok(PersistedFormat::V1) => {
+                match VaultSession::unlock_with_recovery(store, &recovery_key) {
+                    Ok(s) => {
+                        let vault_id = s.doc.meta.vault_id.clone();
+                        *session = Some(ActiveSession::V1(s));
+                        VaultResponse::Unlocked { vault_id }
+                    }
+                    Err(e) => VaultResponse::err(e.code(), e.to_string()),
+                }
+            }
+            Ok(PersistedFormat::None) => {
+                VaultResponse::err(ErrorCode::NotFound, "vault not found")
+            }
+            Err(e) => VaultResponse::err(e.code(), e.to_string()),
+        },
+        VaultRequest::ImportEncrypted {
+            blob,
+            passphrase,
+            new_passphrase,
+            replace,
+        } => {
+            let Some(vault_pw) = new_passphrase.as_deref().filter(|s| !s.is_empty()) else {
+                return VaultResponse::err(
+                    ErrorCode::InvalidRequest,
+                    "restore requires a new v2 passphrase",
+                );
+            };
+            match import_production(store, &blob, &passphrase, vault_pw, replace) {
+                Ok(s) => {
+                    let vault_id = s.doc.meta.vault_id.clone();
+                    *session = Some(ActiveSession::V2(s));
+                    VaultResponse::Unlocked { vault_id }
+                }
+                Err(e) => VaultResponse::err(e.code(), e.to_string()),
+            }
+        }
+        VaultRequest::ImportRecoveryKit {
+            kit,
+            recovery_secret,
+            new_passphrase,
+            backup,
+            backup_passphrase,
+        } => {
+            match crate::session_v2::VaultSessionV2::import_recovery_kit(
+                store,
+                &kit,
+                &recovery_secret,
+                &new_passphrase,
+                if backup.is_empty() { None } else { Some(backup.as_slice()) },
+                backup_passphrase.as_deref(),
+            ) {
+                Ok(s) => {
+                    let vault_id = s.doc.meta.vault_id.clone();
+                    *session = Some(ActiveSession::V2(s));
+                    VaultResponse::Unlocked { vault_id }
+                }
+                Err(e) => VaultResponse::err(e.code(), e.to_string()),
+            }
+        }
+        VaultRequest::MigrateVault { passphrase } => {
+            match crate::migrate::migrate_live_v1_to_v2(store, &passphrase) {
+                Ok((s, recovery_secret)) => {
+                    let vault_id = s.doc.meta.vault_id.clone();
+                    *session = Some(ActiveSession::V2(s));
+                    VaultResponse::Migrated {
+                        vault_id,
+                        recovery_secret,
+                    }
+                }
+                Err(e) => VaultResponse::err(e.code(), e.to_string()),
+            }
+        }
+        VaultRequest::MigrateVaultWithRecovery {
+            recovery_key,
+            new_v2_passphrase,
+        } => {
+            match crate::migrate::migrate_live_v1_to_v2_with_recovery(
+                store,
+                &recovery_key,
+                &new_v2_passphrase,
+            ) {
+                Ok((s, recovery_secret)) => {
+                    let vault_id = s.doc.meta.vault_id.clone();
+                    *session = Some(ActiveSession::V2(s));
+                    VaultResponse::Migrated {
+                        vault_id,
+                        recovery_secret,
+                    }
+                }
+                Err(e) => VaultResponse::err(e.code(), e.to_string()),
+            }
+        }
         VaultRequest::PreviewImport {
             blob,
             passphrase,
@@ -1182,10 +1683,11 @@ pub fn dispatch_with_sync(
             }
         }
         VaultRequest::Lock => {
-            if let Some(s) = session.as_mut() {
-                s.lock(store);
+            match session.take() {
+                Some(ActiveSession::V1(mut s)) => s.lock(store),
+                Some(ActiveSession::V2(s)) => s.lock(store),
+                None => {}
             }
-            *session = None;
             VaultResponse::Locked
         }
         VaultRequest::SyncNow => {
@@ -1210,23 +1712,27 @@ pub fn dispatch_with_sync(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::KdfProfile;
+    use crate::crypto::{Argon2ParamsV2, KdfProfile};
     use crate::types::Entry;
+
+    const PW: &str = "correct horse battery staple";
+    const PW2: &str = "new horse battery staple";
+
+    fn unlocked_v2(store: &mut MemoryStore) -> Option<ActiveSession> {
+        Some(ActiveSession::V2(
+            crate::session_v2::VaultSessionV2::create_with_params(
+                store,
+                PW,
+                Argon2ParamsV2::insecure_for_tests(),
+            )
+            .expect("v2 test create"),
+        ))
+    }
 
     #[test]
     fn create_unlock_crud() {
         let mut store = MemoryStore::default();
-        let mut session = None;
-
-        let r = dispatch(
-            &mut store,
-            &mut session,
-            VaultRequest::CreateVault {
-                passphrase: "test-pass".into(),
-                kdf_profile: KdfProfile::Test,
-            },
-        );
-        assert!(matches!(r, VaultResponse::Unlocked { .. }));
+        let mut session = unlocked_v2(&mut store);
 
         let mut entry = Entry::new("", "Example");
         entry.username = "user".into();
@@ -1249,7 +1755,7 @@ mod tests {
             &mut store,
             &mut session,
             VaultRequest::Unlock {
-                passphrase: "test-pass".into(),
+                passphrase: PW.into(),
             },
         );
         assert!(matches!(r, VaultResponse::Unlocked { .. }));
@@ -1282,15 +1788,7 @@ mod tests {
     #[test]
     fn recovery_key_unlock() {
         let mut store = MemoryStore::default();
-        let mut session = None;
-        dispatch(
-            &mut store,
-            &mut session,
-            VaultRequest::CreateVault {
-                passphrase: "normal-passphrase".into(),
-                kdf_profile: KdfProfile::Test,
-            },
-        );
+        let mut session = unlocked_v2(&mut store);
         let mut entry = Entry::new("", "Keep");
         entry.password = "secret-entry".into();
         dispatch(
@@ -1307,10 +1805,13 @@ mod tests {
             },
         );
         let recovery_key = match r {
-            VaultResponse::RecoveryKey { recovery_key } => recovery_key,
+            VaultResponse::RecoveryKey { recovery_key, kit } => {
+                assert!(kit.starts_with(crate::crypto::MAGIC_RECOVERY_V2));
+                recovery_key
+            }
             other => panic!("expected recovery key: {other:?}"),
         };
-        assert!(recovery_key.starts_with("AEGIS-"));
+        assert!(recovery_key.starts_with("AEGIS2-"));
 
         dispatch(&mut store, &mut session, VaultRequest::Lock);
         let r = dispatch(
@@ -1341,7 +1842,7 @@ mod tests {
             &mut store,
             &mut session,
             VaultRequest::UnlockWithRecovery {
-                recovery_key: "AEGIS-0000-0000-0000-0000-0000-0000-0000-0000".into(),
+                recovery_key: "00".repeat(32),
             },
         );
         assert!(matches!(r, VaultResponse::Error { code: ErrorCode::AuthFailed, .. }));
@@ -1350,21 +1851,13 @@ mod tests {
     #[test]
     fn change_passphrase_rewraps() {
         let mut store = MemoryStore::default();
-        let mut session = None;
-        dispatch(
-            &mut store,
-            &mut session,
-            VaultRequest::CreateVault {
-                passphrase: "old-pass-word".into(),
-                kdf_profile: KdfProfile::Test,
-            },
-        );
+        let mut session = unlocked_v2(&mut store);
         let r = dispatch(
             &mut store,
             &mut session,
             VaultRequest::ChangePassphrase {
-                current_passphrase: "old-pass-word".into(),
-                new_passphrase: "new-pass-word".into(),
+                current_passphrase: PW.into(),
+                new_passphrase: PW2.into(),
                 kdf_profile: Some(KdfProfile::Test),
             },
         );
@@ -1375,7 +1868,7 @@ mod tests {
             &mut store,
             &mut session,
             VaultRequest::Unlock {
-                passphrase: "old-pass-word".into(),
+                passphrase: PW.into(),
             },
         );
         assert!(matches!(r, VaultResponse::Error { code: ErrorCode::AuthFailed, .. }));
@@ -1384,7 +1877,7 @@ mod tests {
             &mut store,
             &mut session,
             VaultRequest::Unlock {
-                passphrase: "new-pass-word".into(),
+                passphrase: PW2.into(),
             },
         );
         assert!(matches!(r, VaultResponse::Unlocked { .. }));
@@ -1393,15 +1886,7 @@ mod tests {
     #[test]
     fn password_history_on_change() {
         let mut store = MemoryStore::default();
-        let mut session = None;
-        dispatch(
-            &mut store,
-            &mut session,
-            VaultRequest::CreateVault {
-                passphrase: "test-pass-xx".into(),
-                kdf_profile: KdfProfile::Test,
-            },
-        );
+        let mut session = unlocked_v2(&mut store);
         let mut e = Entry::new("e1", "Site");
         e.password = "first-password".into();
         dispatch(
@@ -1434,15 +1919,7 @@ mod tests {
     #[test]
     fn password_health_reports_issues() {
         let mut store = MemoryStore::default();
-        let mut session = None;
-        dispatch(
-            &mut store,
-            &mut session,
-            VaultRequest::CreateVault {
-                passphrase: "test-pass-xx".into(),
-                kdf_profile: KdfProfile::Test,
-            },
-        );
+        let mut session = unlocked_v2(&mut store);
         let mut e = Entry::new("", "Weak");
         e.password = "password".into();
         dispatch(
@@ -1462,17 +1939,10 @@ mod tests {
 
     #[test]
     fn sync_now_uses_secret_store_fallback() {
-        // Freenet path: dispatch() with no FileSyncTransport must still SyncNow.
+        // Writable v1 (test helper): production create is v2 and defers VaultSync.
         let mut store_a = MemoryStore::default();
-        let mut session_a = None;
-        dispatch(
-            &mut store_a,
-            &mut session_a,
-            VaultRequest::CreateVault {
-                passphrase: "sync-passphrase".into(),
-                kdf_profile: KdfProfile::Test,
-            },
-        );
+        let s = VaultSession::create(&mut store_a, "sync-passphrase", KdfProfile::Test).unwrap();
+        let mut session_a = Some(ActiveSession::V1(s));
         let mut e = Entry::new("", "Synced");
         e.password = "from-a".into();
         dispatch(
@@ -1511,17 +1981,9 @@ mod tests {
         };
 
         let mut store_b = MemoryStore::default();
-        let mut session_b = None;
-        let r = dispatch(
-            &mut store_b,
-            &mut session_b,
-            VaultRequest::ImportEncrypted {
-                blob: export,
-                passphrase: "sync-passphrase".into(),
-                replace: false,
-            },
-        );
-        assert!(matches!(r, VaultResponse::Unlocked { .. }));
+        let imported =
+            import_bundle(&mut store_b, &export, "sync-passphrase", false).expect("v1 import");
+        let mut session_b = Some(ActiveSession::V1(imported));
 
         // Hand B the encrypted MVR that A published into its secret store.
         store_b.set(
@@ -1544,15 +2006,7 @@ mod tests {
     #[test]
     fn summary_includes_feature_flags() {
         let mut store = MemoryStore::default();
-        let mut session = None;
-        dispatch(
-            &mut store,
-            &mut session,
-            VaultRequest::CreateVault {
-                passphrase: "flags-test-pass".into(),
-                kdf_profile: KdfProfile::Test,
-            },
-        );
+        let mut session = unlocked_v2(&mut store);
         let mut e = Entry::new("", "Flagged");
         e.password = "secret".into();
         e.username = "bob".into();
@@ -1586,15 +2040,7 @@ mod tests {
     #[test]
     fn preview_import_shows_entry_diff() {
         let mut store = MemoryStore::default();
-        let mut session = None;
-        dispatch(
-            &mut store,
-            &mut session,
-            VaultRequest::CreateVault {
-                passphrase: "preview-pass".into(),
-                kdf_profile: KdfProfile::Test,
-            },
-        );
+        let mut session = unlocked_v2(&mut store);
         let mut shared = Entry::new("", "Shared");
         shared.password = "old".into();
         dispatch(
@@ -1617,7 +2063,7 @@ mod tests {
             &mut store,
             &mut session,
             VaultRequest::ExportEncrypted {
-                passphrase: "preview-pass".into(),
+                passphrase: PW.into(),
             },
         );
         let blob = match export {
@@ -1641,7 +2087,8 @@ mod tests {
             &mut session_b,
             VaultRequest::ImportEncrypted {
                 blob: blob.clone(),
-                passphrase: "preview-pass".into(),
+                passphrase: PW.into(),
+                new_passphrase: Some(PW.into()),
                 replace: false,
             },
         );
@@ -1695,7 +2142,7 @@ mod tests {
             &mut store_b,
             &mut session_b,
             VaultRequest::ExportEncrypted {
-                passphrase: "preview-pass".into(),
+                passphrase: PW.into(),
             },
         );
         let blob_b = match export_b {
@@ -1710,7 +2157,7 @@ mod tests {
             &mut session,
             VaultRequest::PreviewImport {
                 blob: blob_b,
-                passphrase: "preview-pass".into(),
+                passphrase: PW.into(),
                 local_passphrase: None,
             },
         );
@@ -1747,15 +2194,7 @@ mod tests {
     #[test]
     fn export_import_roundtrip() {
         let mut store = MemoryStore::default();
-        let mut session = None;
-        dispatch(
-            &mut store,
-            &mut session,
-            VaultRequest::CreateVault {
-                passphrase: "alpha".into(),
-                kdf_profile: KdfProfile::Test,
-            },
-        );
+        let mut session = unlocked_v2(&mut store);
         let mut entry = Entry::new("", "Bank");
         entry.password = "pw".into();
         dispatch(
@@ -1768,7 +2207,7 @@ mod tests {
             &mut store,
             &mut session,
             VaultRequest::ExportEncrypted {
-                passphrase: "alpha".into(),
+                passphrase: PW.into(),
             },
         );
         let blob = match export {
@@ -1783,7 +2222,8 @@ mod tests {
             &mut session2,
             VaultRequest::ImportEncrypted {
                 blob,
-                passphrase: "alpha".into(),
+                passphrase: PW.into(),
+                new_passphrase: Some(PW.into()),
                 replace: false,
             },
         );

@@ -1,8 +1,12 @@
 /**
  * VaultSync contract client (Freenet mesh multi-device).
  *
- * Identity = vault owner verifying key (from MasterSecret). Only an unlocked
- * session that holds that key can produce valid signed revisions.
+ * Identity = vault owner verifying key. v1 is Ed25519-only
+ * (`AEGIS_VAULT_SYNC_V1`). v2 params are hybrid (`AEGIS_VAULT_SYNC_V2`) —
+ * that string is the Freenet contract discriminator, not D10 file magic.
+ * External v2 sync bytes use `AEGIS_SYNC_V2 || 0x02 || CBOR`. Only an
+ * unlocked session that holds the current-epoch keys can produce valid
+ * signed revisions.
  *
  * Contract instance id = blake3(code_hash || VaultSyncParams_cbor)
  * (matches freenet-stdlib ContractInstanceId::from_params_and_code).

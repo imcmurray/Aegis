@@ -69,7 +69,14 @@ pub enum VaultRequest {
     ImportEncrypted {
         #[serde(with = "serde_bytes")]
         blob: Vec<u8>,
+        /// Backup/export passphrase. Authenticates the file only. Never becomes
+        /// the live-vault wrap by default. Historical v1 short passwords remain valid.
         passphrase: String,
+        /// Independent live-vault passphrase (D18). Wraps the newly generated
+        /// RootSecret. Required for both v1 `.aegis` and `AEGIS_BACKUP_V2` restore.
+        /// Omitted/empty fails closed — never defaults to `passphrase`.
+        #[serde(default)]
+        new_passphrase: Option<String>,
         /// If true, wipe existing vault secrets and replace (re-sync another browser).
         #[serde(default)]
         replace: bool,
@@ -121,12 +128,65 @@ pub enum VaultRequest {
         #[serde(default)]
         kdf_profile: Option<KdfProfile>,
     },
+    /// Re-download the current Recovery Kit file (does not mint a new secret).
+    ExportRecoveryKit,
+    /// Identity-preserving recovery.
+    ///
+    /// Existing v2 vault: kit + secret + `new_passphrase` re-wraps the same
+    /// RootSecret (lost-passphrase). Empty store: also requires a v2 backup for
+    /// DATA (`backup` + `backup_passphrase`); the kit alone is not a restore.
+    ImportRecoveryKit {
+        #[serde(with = "serde_bytes")]
+        kit: Vec<u8>,
+        recovery_secret: String,
+        new_passphrase: String,
+        #[serde(default, with = "serde_bytes")]
+        backup: Vec<u8>,
+        #[serde(default)]
+        backup_passphrase: Option<String>,
+    },
     /// Unlock using a recovery key instead of the master passphrase.
     UnlockWithRecovery {
         recovery_key: String,
     },
     /// Remove recovery key envelope (cannot unlock via recovery afterward).
     RevokeRecoveryKey,
+    /// Explicit live v1 → v2 migration (unlocked v1 session + passphrase).
+    MigrateVault {
+        passphrase: String,
+    },
+    /// Live v1 → v2 migration using the v1 recovery key (forgotten passphrase).
+    MigrateVaultWithRecovery {
+        recovery_key: String,
+        new_v2_passphrase: String,
+    },
+    /// Explicit full RootSecret rotation (Phase 6). Never runs on unlock.
+    RotateKeys {
+        passphrase: String,
+        /// If recovery is configured, supplying the current recovery secret
+        /// re-wraps the new RootSecret under the same RecoverySecret. Omitted
+        /// → a new RecoverySecret is minted and returned once.
+        #[serde(default)]
+        recovery_key: Option<String>,
+    },
+    /// Export this vault's hybrid share identity (X25519 + ML-KEM-768, hybrid-signed).
+    ExportShareIdentity,
+    /// Create a hybrid share envelope for one entry, addressed to a recipient identity.
+    CreateShare {
+        entry_id: crate::types::EntryId,
+        #[serde(with = "serde_bytes")]
+        recipient_identity: Vec<u8>,
+    },
+    /// Open a hybrid share envelope. `expected_sender_identity` is the sender's
+    /// exported `SharePublicIdentityV2` (TOFU snapshot: vault_id + key_epoch +
+    /// signing keys). Omitted/empty fails closed — wire keys are not trusted
+    /// as a named sender.
+    OpenShare {
+        #[serde(with = "serde_bytes")]
+        envelope: Vec<u8>,
+        #[serde(default, with = "serde_bytes")]
+        expected_sender_identity: Vec<u8>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -139,6 +199,10 @@ pub enum VaultResponse {
         vault_id: Option<String>,
         #[serde(default)]
         has_recovery: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        vault_format: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        needs_migration: bool,
     },
     Unlocked {
         vault_id: String,
@@ -213,8 +277,32 @@ pub enum VaultResponse {
         report: HealthReport,
     },
     /// Shown only once when generating a recovery key — never logged server-side.
+    /// `kit` is the `AEGIS_RECOVERY_V2` file. `recovery_key` is empty on re-export.
     RecoveryKey {
         recovery_key: String,
+        #[serde(default, with = "serde_bytes")]
+        kit: Vec<u8>,
+    },
+    /// Live v1→v2 migration result. `recovery_secret` shown once.
+    Migrated {
+        vault_id: String,
+        recovery_secret: String,
+    },
+    /// Full cryptographic rotation result.
+    Rotated {
+        vault_id: String,
+        key_epoch: u32,
+        /// Present only when a new RecoverySecret was minted.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        recovery_secret: Option<String>,
+    },
+    ShareIdentity {
+        #[serde(with = "serde_bytes")]
+        blob: Vec<u8>,
+    },
+    ShareEnvelope {
+        #[serde(with = "serde_bytes")]
+        blob: Vec<u8>,
     },
     Error {
         code: ErrorCode,
@@ -235,6 +323,8 @@ pub enum ErrorCode {
     Storage,
     NotImplemented,
     Internal,
+    MigrationRequired,
+    VaultSyncMigrationDeferred,
 }
 
 impl VaultRequest {
@@ -284,6 +374,8 @@ mod tests {
             unlocked: false,
             vault_id: Some("abc".into()),
             has_recovery: false,
+            vault_format: None,
+            needs_migration: false,
         };
         let bytes = resp.to_cbor().unwrap();
         let back = VaultResponse::from_cbor(&bytes).unwrap();
@@ -373,6 +465,8 @@ mod tests {
                 unlocked: false,
                 vault_id: None,
                 has_recovery: false,
+                vault_format: None,
+                needs_migration: false,
             },
             VaultResponse::Password {
                 password: "xY9!".into(),
@@ -403,6 +497,8 @@ mod tests {
             unlocked: false,
             vault_id: Some("abc".into()),
             has_recovery: false,
+            vault_format: None,
+            needs_migration: false,
         };
         println!("STATUS_RESP={}", hex::encode(resp.to_cbor().unwrap()));
         let resp = VaultResponse::Export {

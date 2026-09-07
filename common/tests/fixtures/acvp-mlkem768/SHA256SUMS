@@ -1,0 +1,3 @@
+# SHA-256 of vendored ML-KEM-768 ACVP subsets. Source-file hashes are in PROVENANCE.md.
+77c000296333f29488104f9868b49e20a076d61d3f730fba7f32d9fe9d5635fc  keyGen-FIPS203-ML-KEM-768.json
+d74d717eb475d1363d9176576fcef1d41fe59e55ed1e7689c346ef9f5d82dea1  encapDecap-FIPS203-ML-KEM-768.json

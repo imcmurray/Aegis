@@ -101,6 +101,7 @@ function requestToPlain(req: VaultRequest): Record<string, unknown> {
         op: "import_encrypted",
         blob,
         passphrase: req.passphrase,
+        new_passphrase: req.new_passphrase ?? null,
         replace: req.replace ?? false,
       };
     }
@@ -140,10 +141,57 @@ function requestToPlain(req: VaultRequest): Record<string, unknown> {
         op: "generate_recovery_key",
         kdf_profile: req.kdf_profile ?? null,
       };
+    case "export_recovery_kit":
+      return { op: "export_recovery_kit" };
+    case "import_recovery_kit": {
+      const kit =
+        req.kit instanceof Uint8Array ? req.kit : new Uint8Array(req.kit);
+      const backup = req.backup
+        ? req.backup instanceof Uint8Array
+          ? req.backup
+          : new Uint8Array(req.backup)
+        : new Uint8Array(0);
+      return {
+        op: "import_recovery_kit",
+        kit,
+        recovery_secret: req.recovery_secret,
+        new_passphrase: req.new_passphrase,
+        backup,
+        backup_passphrase: req.backup_passphrase ?? null,
+      };
+    }
     case "unlock_with_recovery":
       return { op: "unlock_with_recovery", recovery_key: req.recovery_key };
     case "revoke_recovery_key":
       return { op: "revoke_recovery_key" };
+    case "migrate_vault":
+      return { op: "migrate_vault", passphrase: req.passphrase };
+    case "migrate_vault_with_recovery":
+      return {
+        op: "migrate_vault_with_recovery",
+        recovery_key: req.recovery_key,
+        new_v2_passphrase: req.new_v2_passphrase,
+      };
+    case "rotate_keys":
+      return {
+        op: "rotate_keys",
+        passphrase: req.passphrase,
+        recovery_key: req.recovery_key ?? null,
+      };
+    case "export_share_identity":
+      return { op: "export_share_identity" };
+    case "create_share":
+      return {
+        op: "create_share",
+        entry_id: req.entry_id,
+        recipient_identity: req.recipient_identity,
+      };
+    case "open_share":
+      return {
+        op: "open_share",
+        envelope: req.envelope,
+        expected_sender_identity: req.expected_sender_identity ?? new Uint8Array(0),
+      };
     default: {
       const _exhaustive: never = req;
       throw new Error(`unknown request: ${JSON.stringify(_exhaustive)}`);
@@ -207,6 +255,10 @@ function plainToRequest(obj: Record<string, unknown>): VaultRequest {
         op: "import_encrypted",
         blob,
         passphrase: String(obj.passphrase ?? ""),
+        new_passphrase:
+          obj.new_passphrase == null || obj.new_passphrase === ""
+            ? null
+            : String(obj.new_passphrase),
         replace: Boolean(obj.replace),
       };
     }
@@ -251,6 +303,20 @@ function plainToRequest(obj: Record<string, unknown>): VaultRequest {
         op: "generate_recovery_key",
         kdf_profile: obj.kdf_profile as never,
       };
+    case "export_recovery_kit":
+      return { op: "export_recovery_kit" };
+    case "import_recovery_kit":
+      return {
+        op: "import_recovery_kit",
+        kit: bytesField(obj.kit),
+        recovery_secret: String(obj.recovery_secret ?? ""),
+        new_passphrase: String(obj.new_passphrase ?? ""),
+        backup: bytesField(obj.backup),
+        backup_passphrase:
+          obj.backup_passphrase == null || obj.backup_passphrase === ""
+            ? null
+            : String(obj.backup_passphrase),
+      };
     case "unlock_with_recovery":
       return {
         op: "unlock_with_recovery",
@@ -258,6 +324,37 @@ function plainToRequest(obj: Record<string, unknown>): VaultRequest {
       };
     case "revoke_recovery_key":
       return { op: "revoke_recovery_key" };
+    case "migrate_vault":
+      return { op: "migrate_vault", passphrase: String(obj.passphrase ?? "") };
+    case "migrate_vault_with_recovery":
+      return {
+        op: "migrate_vault_with_recovery",
+        recovery_key: String(obj.recovery_key ?? ""),
+        new_v2_passphrase: String(obj.new_v2_passphrase ?? ""),
+      };
+    case "rotate_keys":
+      return {
+        op: "rotate_keys",
+        passphrase: String(obj.passphrase ?? ""),
+        recovery_key:
+          obj.recovery_key == null || obj.recovery_key === ""
+            ? null
+            : String(obj.recovery_key),
+      };
+    case "export_share_identity":
+      return { op: "export_share_identity" };
+    case "create_share":
+      return {
+        op: "create_share",
+        entry_id: String(obj.entry_id ?? ""),
+        recipient_identity: bytesField(obj.recipient_identity),
+      };
+    case "open_share":
+      return {
+        op: "open_share",
+        envelope: bytesField(obj.envelope),
+        expected_sender_identity: bytesField(obj.expected_sender_identity),
+      };
     default:
       throw new Error(`unknown request op: ${op}`);
   }
@@ -278,6 +375,8 @@ function responseToPlain(resp: VaultResponse): Record<string, unknown> {
         unlocked: resp.unlocked,
         vault_id: resp.vault_id,
         has_recovery: resp.has_recovery ?? false,
+        vault_format: resp.vault_format ?? null,
+        needs_migration: resp.needs_migration ?? false,
       };
     case "summaries":
       return { type: "summaries", entries: resp.entries };
@@ -318,7 +417,38 @@ function responseToPlain(resp: VaultResponse): Record<string, unknown> {
     case "health":
       return { type: "health", report: resp.report };
     case "recovery_key":
-      return { type: "recovery_key", recovery_key: resp.recovery_key };
+      return {
+        type: "recovery_key",
+        recovery_key: resp.recovery_key,
+        kit: resp.kit ?? new Uint8Array(0),
+      };
+    case "migrated":
+      return {
+        type: "migrated",
+        vault_id: resp.vault_id,
+        recovery_secret: resp.recovery_secret,
+      };
+    case "rotated":
+      return {
+        type: "rotated",
+        vault_id: resp.vault_id,
+        key_epoch: resp.key_epoch,
+        recovery_secret: resp.recovery_secret ?? null,
+      };
+    case "share_identity": {
+      const blob =
+        resp.blob instanceof Uint8Array
+          ? resp.blob
+          : new Uint8Array(resp.blob as number[]);
+      return { type: "share_identity", blob };
+    }
+    case "share_envelope": {
+      const blob =
+        resp.blob instanceof Uint8Array
+          ? resp.blob
+          : new Uint8Array(resp.blob as number[]);
+      return { type: "share_envelope", blob };
+    }
     case "import_preview":
       return {
         type: "import_preview",
@@ -368,6 +498,8 @@ function plainToResponse(obj: Record<string, unknown>): VaultResponse {
         unlocked: Boolean(obj.unlocked),
         vault_id: (obj.vault_id as string | null) ?? null,
         has_recovery: Boolean(obj.has_recovery),
+        vault_format: (obj.vault_format as string | null | undefined) ?? null,
+        needs_migration: Boolean(obj.needs_migration),
       };
     case "summaries":
       return { type: "summaries", entries: (obj.entries as never) ?? [] };
@@ -423,7 +555,28 @@ function plainToResponse(obj: Record<string, unknown>): VaultResponse {
       return {
         type: "recovery_key",
         recovery_key: String(obj.recovery_key ?? ""),
+        kit: bytesField(obj.kit),
       };
+    case "migrated":
+      return {
+        type: "migrated",
+        vault_id: String(obj.vault_id ?? ""),
+        recovery_secret: String(obj.recovery_secret ?? ""),
+      };
+    case "rotated":
+      return {
+        type: "rotated",
+        vault_id: String(obj.vault_id ?? ""),
+        key_epoch: Number(obj.key_epoch ?? 0),
+        recovery_secret:
+          obj.recovery_secret == null || obj.recovery_secret === ""
+            ? null
+            : String(obj.recovery_secret),
+      };
+    case "share_identity":
+      return { type: "share_identity", blob: bytesField(obj.blob) };
+    case "share_envelope":
+      return { type: "share_envelope", blob: bytesField(obj.blob) };
     case "import_preview":
       return {
         type: "import_preview",

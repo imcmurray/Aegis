@@ -3,20 +3,21 @@
 ## Identity model (no Google / browser profile)
 
 ```
-Master passphrase
-  → MasterSecret
-      → vault-dek          (passwords)
-      → sync-sign Ed25519  → owner_verifying_key  ← “you” on the mesh
+Master passphrase → WrapKek → RootSecret (memory-only)
+  → vault-dek / audit-dek / sync-dek
+  → sync-ed25519-seed AND sync-mldsa-seed  → HybridSyncIdentityV2
 ```
 
-- **Only an unlocked session** that holds MasterSecret can sign revisions.
-- Nobody can “id as you” without passphrase/recovery (see threat model).
-- Optional future Freenet IAM is separate; this is sufficient for vault ownership.
+- **Only an unlocked v2 session** that holds RootSecret can sign revisions.
+- A revision is accepted only if **both** Ed25519 and ML-DSA-65 verify over the D1 transcript **and** the wire keys match the authorized identity for this vault/epoch. Envelope-carried keys alone are not attribution.
+- After rotation, old-epoch revisions are rejected; a dual-signed transition record authorizes the new identity.
+- File/wire magic is `AEGIS_SYNC_V2`. The Freenet contract app id `AEGIS_VAULT_SYNC_V2` is not file magic.
+- Local coherent rollback detection is counter-monotonic per device+epoch. A fully consistent older snapshot can still look valid if no newer counter was retained — that limit is architectural, not a parser bug.
 
 ## Contract
 
 - WASM: `aegis_vault_sync.wasm`
-- Params (CBOR): `{ owner_verifying_key: [u8;32], app: "AEGIS_VAULT_SYNC_V1" }`
+- Params (CBOR): v2 `{ ed25519_verifying_key, ml_dsa_verifying_key, app: "AEGIS_VAULT_SYNC_V2" }`
 - Instance id: `blake3(code_hash ‖ params_cbor)` (Freenet standard)
 - State: signed encrypted revisions (MVR); contract never sees plaintext passwords
 
