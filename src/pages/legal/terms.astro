@@ -14,7 +14,7 @@ import { site } from '../../data/site';
       <p>Personal, Family, Teams and Enterprise plans are subscriptions to hosted services: encrypted sync, encrypted backup, sharing infrastructure and support. Subscriptions renew until cancelled. Annual plans may be refunded within 30 days of purchase.</p>
       <h2>Your responsibilities</h2>
       <ul>
-        <li>Choose a strong passphrase and keep your recovery key safe. We cannot reset either.</li>
+        <li>Choose a strong passphrase and keep your Recovery Kit and recovery secret safe, in separate places. We cannot reset any of them.</li>
         <li>Do not use the service to store or share material you have no right to.</li>
         <li>Keep your billing account credentials confidential.</li>
       </ul>
@@ -25,7 +25,7 @@ import { site } from '../../data/site';
         <li>Meet the support response times for your plan.</li>
       </ul>
       <h2>No recovery, by design</h2>
-      <p>Because we hold no key to your vault, losing both your passphrase and your recovery key means the vault cannot be recovered, by us or by anyone else.</p>
+      <p>Because we hold no key to your vault, losing your passphrase and either your Recovery Kit or its recovery secret means the vault cannot be recovered, by us or by anyone else.</p>
       <h2>Contact</h2>
       <p><a href={`mailto:${site.supportEmail}`}>{site.supportEmail}</a></p>
     </div>

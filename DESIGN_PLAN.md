@@ -14,8 +14,8 @@ The site itself is built with Astro on this branch. See [`README.md`](./README.m
 
 | Claim | Evidence already in the repo |
 |---|---|
-| Zero-knowledge | Argon2id → MasterSecret → vault DEK; sealing happens in WASM in the browser (`docs/CRYPTO.md`) |
-| Modern cryptography | Argon2id, XChaCha20-Poly1305, HKDF-SHA256, Ed25519 |
+| Zero-knowledge | Argon2id → WrapKek → memory-only RootSecret → per-vault keys; sealing happens in WASM in the browser (`docs/CRYPTO.md`) |
+| Modern cryptography | Argon2id, XChaCha20-Poly1305, HKDF-SHA256; hybrid Ed25519 + ML-DSA-65 sync and X25519 + ML-KEM-768 sharing (v2) |
 | Auditable | MIT / Apache-2.0, public source, published threat model (`docs/THREAT_MODEL.md`) |
 | No lock-in | Encrypted `.aegis` export/import, self-hostable static build, optional Freenet mesh |
 | No account required | Free tier works with a browser and nothing else |
@@ -77,7 +77,7 @@ Plain, specific, unhurried. Say what the cryptography does in one sentence, then
 ### Imagery
 
 - **Product shots** of the real vault UI (dark theme) inside a thin device frame, on a `paper` background with a soft shadow. No stock photos of padlocks or hooded hackers.
-- **Diagrams** drawn in the brand palette: the key hierarchy (passphrase → KEK → MasterSecret → DEK) and the trust boundary diagram from the threat model. These are the site's "hero visuals" for the Security page.
+- **Diagrams** drawn in the brand palette: the key hierarchy (passphrase → WrapKek → RootSecret → per-vault keys) and the trust boundary diagram from the threat model. These are the site's "hero visuals" for the Security page.
 - **Icons:** Material Symbols Rounded, weight 400, to match the shield mark (which is Material's `encrypted_add`).
 
 ### Motion
@@ -124,9 +124,9 @@ The RRL attribution appears in three places: footer bottom bar (every page), the
 |---|---|---|---|
 | 1 | Nav | As above | Transparent over hero, becomes `paper` with hairline on scroll |
 | 2 | Hero | H1: "Your passwords. Your keys. *Nobody else's.*" Sub: one-sentence zero-knowledge explanation. CTAs: **Open the free vault** (primary), *See how it works* (secondary). Small line: "No account. No install. Open source." | Navy→ink gradient, left-aligned copy (max 560px), product screenshot in device frame on the right, breaking the section bottom edge |
-| 3 | Trust bar | Argon2id · XChaCha20-Poly1305 · Ed25519 · Open source · Zero-knowledge | Monospace labels, muted, single row |
+| 3 | Trust bar | Argon2id · XChaCha20-Poly1305 · Ed25519 + ML-DSA-65 · X25519 + ML-KEM-768 · Open source · Zero-knowledge | Monospace labels, muted, single row |
 | 4 | How it works | 3 steps: Choose a passphrase → Your device encrypts everything → Sync or export, still encrypted | Numbered cards on `paper`, tiny diagrams |
-| 5 | Features | Entries, folders & labels · TOTP codes · Password health · Generator · Recovery key · Encrypted export · Multi-device sync · Works offline | 4×2 grid, icon + title + one line |
+| 5 | Features | Entries, folders & labels · TOTP codes · Generator and health · Recovery Kit · Encrypted backups · Multi-device sync · Share an entry · Key rotation · Works offline | 4×2 grid, icon + title + one line |
 | 6 | Security spotlight | Key hierarchy diagram + "We published our threat model" + link | Dark section, the only other dark block |
 | 7 | Personal / Business split | Two cards side by side, each with a 3-bullet summary and a CTA to its page | Equal weight; Business card gets a "Teams · Enterprise" eyebrow |
 | 8 | Pricing snapshot | Free / Personal / Teams / Enterprise cards, annual price, "Compare plans →" | Personal highlighted with a blue top border |
@@ -177,7 +177,7 @@ Mission paragraph; "From the makers": Aegis is another application written by Ri
 - **Sub:** Aegis encrypts your vault on your device with a passphrase only you know. We never see it, and neither does anyone else. Open source, no account required.
 - **Primary CTA:** Open the free vault
 - **Secondary CTA:** See how it works
-- **Trust line:** Argon2id · XChaCha20-Poly1305 · Ed25519 · MIT / Apache-2.0
+- **Trust line:** Argon2id · XChaCha20-Poly1305 · Ed25519 + ML-DSA-65 · X25519 + ML-KEM-768 · MIT / Apache-2.0
 - **How it works:**
   1. **Choose a passphrase.** It never leaves your device. Argon2id turns it into a key that unlocks your vault.
   2. **Everything is sealed locally.** Passwords, notes, and TOTP seeds are encrypted with XChaCha20-Poly1305 before they touch storage.
@@ -209,7 +209,7 @@ Mission paragraph; "From the makers": Aegis is another application written by Ri
 ## 7. FAQ content
 
 1. **Can Rinse Repeat Labs read my passwords?** No. Encryption and decryption happen on your device. Our servers only ever hold ciphertext.
-2. **What if I forget my passphrase?** Generate a recovery key and store it offline. Without either, the vault cannot be opened, by design.
+2. **What if I forget my passphrase?** Export a Recovery Kit and store its recovery secret separately. Without the passphrase, or the kit and secret together, the vault cannot be opened, by design.
 3. **Do I need an account?** Not for the free vault. A billing account is only needed for paid sync and team features.
 4. **Is it really open source?** Yes, MIT / Apache-2.0. Build it yourself and compare hashes.
 5. **What is Freenet mode?** An optional, experimental way to sync over a decentralized network with no relay at all. Most people should use the default browser vault.
@@ -222,7 +222,7 @@ Mission paragraph; "From the makers": Aegis is another application written by Ri
 The website can only promise what the product does. Today the repo ships a single-user browser vault with encrypted export/import and an experimental Freenet mesh. Before the Teams and Enterprise pages go live these need to exist, or be clearly labeled "coming":
 
 1. Hosted encrypted sync relay (the paid Personal feature).
-2. Shared collections and item sharing (architecture phase 3, not yet built).
+2. Shared collections (single-entry hybrid sharing shipped in v2.0.0-rc.1; team collections are not yet built).
 3. Admin console, roles, and audit log export.
 4. SSO / SCIM.
 5. Native apps and browser extension (autofill is the feature buyers expect first).

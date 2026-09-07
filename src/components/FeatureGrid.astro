@@ -2,11 +2,12 @@
 const features = [
   { icon: 'M3 4h18v16H3zM3 9h18M8 13h4', title: 'Logins, notes, folders', text: 'Entries with URLs, usernames, custom fields and labels, organised the way you think.' },
   { icon: 'M12 3a9 9 0 100 18 9 9 0 000-18zM12 7v5l3 2', title: 'One-time codes', text: 'TOTP lives next to the password it protects, so two-factor is one copy away.' },
-  { icon: 'M4 19h16M6 15l4-6 4 4 4-7', title: 'Password health', text: 'Weak, reused and old passwords surfaced in one view, without sending anything anywhere.' },
-  { icon: 'M12 3a9 9 0 100 18 9 9 0 000-18zM4 12h16M12 4v16', title: 'Generator', text: 'Long, random, memorable or strict: passwords tuned to what the site will accept.' },
-  { icon: 'M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7zM9 12l2 2 4-4', title: 'Recovery key', text: 'Generate one, store it offline, and a forgotten passphrase is no longer the end.' },
-  { icon: 'M12 4v11M8 11l4 4 4-4M4 19h16', title: 'Encrypted export', text: 'Backups are sealed the same way as the vault. Restore in any browser, or replace a stale copy after a preview.' },
-  { icon: 'M3 5h12v9H3zM13 10h8v10h-8z', title: 'Multi-device', text: 'Encrypted sync across devices, signed with a key only an unlocked vault can produce.' },
+  { icon: 'M4 19h16M6 15l4-6 4 4 4-7', title: 'Generator and health', text: 'Strong passwords on demand, and weak, reused or old ones surfaced in one view, computed on your device.' },
+  { icon: 'M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7zM9 12l2 2 4-4', title: 'Recovery Kit', text: 'Export a kit once and keep its recovery secret separately. Together they let you set a new passphrase on the same vault.' },
+  { icon: 'M12 4v11M8 11l4 4 4-4M4 19h16', title: 'Encrypted backups', text: 'A sealed .aegis file restores in any browser and never exposes your live keys, because a restore mints a fresh identity.' },
+  { icon: 'M3 5h12v9H3zM13 10h8v10h-8z', title: 'Multi-device sync', text: 'Encrypted revisions signed with both Ed25519 and ML-DSA-65, so a break in either scheme alone cannot forge a change.' },
+  { icon: 'M4 12h16M14 6l6 6-6 6', title: 'Share an entry', text: 'Seal one entry to another Aegis user under X25519 and ML-KEM-768 together. Only the named sender can be opened.' },
+  { icon: 'M20 12a8 8 0 11-2.3-5.7M20 4v5h-5', title: 'Key rotation', text: 'Rotate your whole identity in one step. Old shares stop opening, and the vault is never decrypted in bulk.' },
   { icon: 'M5 12a7 7 0 0114 0v5H5zM9 21h6', title: 'Works offline', text: 'The vault is yours in the browser, on a plane, or on a machine that never touches the internet.' },
 ];
 ---
@@ -20,7 +21,7 @@ const features = [
   ))}
 </div>
 <style>
-  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
   .feat { background: var(--surface); padding: 1.5rem; display: grid; gap: .5rem; align-content: start; }
   svg { width: 22px; height: 22px; color: var(--accent); }
   h3 { font-size: .98rem; font-weight: 600; }

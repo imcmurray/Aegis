@@ -17,6 +17,7 @@ import { site } from '../data/site';
         <h3>Browser vault</h3>
         <p>Chrome, Firefox, Safari and Edge, current versions. Your vault is stored in this browser's IndexedDB, sealed with your passphrase.</p>
         <a class="btn btn-accent" href={site.appUrl}>Open vault</a>
+        <p class="fine" style="margin-top:0">Current release: {site.latestRelease}. Vaults from version 0.1 migrate to v2 on first unlock.</p>
       </div>
       <div class="card">
         <span class="eyebrow">Self-host</span>

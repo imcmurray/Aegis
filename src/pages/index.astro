@@ -29,7 +29,7 @@ import { site } from '../data/site';
 
   <div class="trust" aria-label="Cryptography used">
     <div class="wrap">
-      <span>Argon2id KDF</span><span>XChaCha20-Poly1305</span><span>HKDF-SHA256</span><span>Ed25519 signatures</span><span>Zero-knowledge</span><span>Open source</span>
+      <span>Argon2id</span><span>XChaCha20-Poly1305</span><span>Ed25519 + ML-DSA-65</span><span>X25519 + ML-KEM-768</span><span>Zero-knowledge</span><span>Open source</span>
     </div>
   </div>
 
@@ -37,9 +37,9 @@ import { site } from '../data/site';
     <div class="wrap">
       <SectionHead eyebrow="How it works">Three steps, and the secret never leaves <em>your device.</em></SectionHead>
       <div class="steps">
-        <div class="step"><span class="n">1</span><h3>Choose a passphrase</h3><p>It never leaves your device. Argon2id (64 MiB, 3 passes) turns it into the key that unwraps your vault's master secret.</p></div>
-        <div class="step"><span class="n">2</span><h3>Everything is sealed locally</h3><p>Passwords, notes and one-time-code seeds are encrypted with XChaCha20-Poly1305 before they touch storage, in a versioned <code>AegisEnvelopeV1</code>.</p></div>
-        <div class="step"><span class="n">3</span><h3>Sync or export, still encrypted</h3><p>Move between devices with an encrypted <code>.aegis</code> file, or let sync carry ciphertext that only your devices can open.</p></div>
+        <div class="step"><span class="n">1</span><h3>Choose a passphrase</h3><p>It never leaves your device. Argon2id, at 64 MiB or more, turns it into the key that unwraps a root secret that only ever lives in memory.</p></div>
+        <div class="step"><span class="n">2</span><h3>Everything is sealed locally</h3><p>Passwords, notes and one-time-code seeds are encrypted with XChaCha20-Poly1305 before they touch storage, in a versioned envelope that fails closed on anything it does not recognise.</p></div>
+        <div class="step"><span class="n">3</span><h3>Sync or export, still encrypted</h3><p>Move between devices with an encrypted <code>.aegis</code> file, or let sync carry ciphertext signed under two signature schemes at once.</p></div>
       </div>
     </div>
   </section>
@@ -55,10 +55,11 @@ import { site } from '../data/site';
     <div class="wrap">
       <div>
         <SectionHead eyebrow="Security" dark>We published the threat model, <em>not a badge.</em></SectionHead>
-        <p class="lede">One passphrase derives every key you own. Passphrase changes re-wrap the master secret, so the vault is never re-encrypted in the clear, and the sync identity is a signing key that only an unlocked vault can produce.</p>
+        <p class="lede">One passphrase unwraps a root secret, and every other key is derived from it per vault. Changing the passphrase re-wraps that secret; rotating your keys replaces it. Sync and sharing are hybrid: a classical scheme and a post-quantum scheme, both required.</p>
         <ul>
           <li>Client-side WASM cryptography, auditable in the open</li>
           <li>Sync relays and contracts see ciphertext only, never plaintext</li>
+          <li>Hybrid post-quantum signatures and key exchange, with no silent downgrade</li>
           <li>The threat model names what we protect, and what we do not</li>
           <li>Responsible disclosure policy and security.txt</li>
         </ul>
@@ -119,8 +120,8 @@ import { site } from '../data/site';
       <div class="stats">
         <div class="stat"><b>{site.license}</b><span>Dual licence</span></div>
         <div class="stat"><b>{site.latestRelease}</b><span>Latest release</span></div>
-        <div class="stat"><b>Rust → WASM</b><span>Crypto core</span></div>
-        <div class="stat"><b>blake3 hashes</b><span>Published per build</span></div>
+        <div class="stat"><b>79.8M inputs</b><span>Fuzzed, seven parsers, no crashes</span></div>
+        <div class="stat"><b>FIPS 203 / 204</b><span>ML-KEM and ML-DSA test vectors in CI</span></div>
       </div>
     </div>
   </section>

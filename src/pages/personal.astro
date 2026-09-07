@@ -20,8 +20,8 @@ import { site } from '../data/site';
         <div><h3>Unlimited entries</h3><p>Logins, secure notes, custom fields, folders and labels. There is no cap and no premium unlock for basics.</p></div>
         <div><h3>One-time codes</h3><p>Store TOTP seeds next to the password they protect and copy both in a single motion.</p></div>
         <div><h3>Generator and health</h3><p>Generate strong passwords and see which existing ones are weak, reused or old. Nothing leaves your device to compute this.</p></div>
-        <div><h3>Recovery key</h3><p>Print or save a recovery key once, offline, and a forgotten passphrase becomes an inconvenience instead of a loss.</p></div>
-        <div><h3>Encrypted export</h3><p>Download a sealed <code>.aegis</code> backup at any time. It opens in any browser running Aegis, with your passphrase.</p></div>
+        <div><h3>Recovery Kit</h3><p>Export a kit once and store its recovery secret somewhere else. Together they let you choose a new passphrase for the same vault, so a forgotten passphrase is an inconvenience instead of a loss.</p></div>
+        <div><h3>Encrypted backups</h3><p>Download a sealed <code>.aegis</code> backup at any time. It opens in any browser running Aegis with its own backup passphrase, and restores as a fresh vault identity so it never exposes your live keys.</p></div>
         <div><h3>No account, no tracking</h3><p>The free vault never talks to a server. There is nothing to sign up for and nothing to unsubscribe from.</p></div>
       </div>
     </div>
@@ -34,7 +34,7 @@ import { site } from '../data/site';
         <p class="lede">Personal carries your encrypted vault between devices through a relay that cannot read it. The relay stores ciphertext and a signature. The key never leaves your devices.</p>
         <ul class="checks">
           <li>Encrypted sync across browsers and computers</li>
-          <li>Encrypted cloud backup, restorable with passphrase or recovery key</li>
+          <li>Encrypted cloud backup, restorable with its backup passphrase</li>
           <li>Email support within two business days</li>
           <li>Family add-on: one bill, up to six private vaults, one shared vault</li>
         </ul>

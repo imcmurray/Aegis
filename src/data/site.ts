@@ -16,7 +16,7 @@ export const site = {
   forms: { support: 'YOUR_SUPPORT_FORM_ID', sales: 'YOUR_SALES_FORM_ID' },
   maker: { name: 'Rinse Repeat Labs', url: 'https://RinseRepeatLabs.com/' },
   license: 'MIT / Apache-2.0',
-  latestRelease: 'v0.1.1',
+  latestRelease: 'v2.0.0-rc.1',
   year: new Date().getFullYear(),
 } as const;
 

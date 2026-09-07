@@ -6,7 +6,7 @@ import KeyTree from '../components/KeyTree.astro';
 import Cta from '../components/Cta.astro';
 import { site } from '../data/site';
 ---
-<Base title="Security" description="How Aegis protects your vault: Argon2id, XChaCha20-Poly1305, HKDF-SHA256 and Ed25519, a published threat model, open source, and a responsible disclosure policy.">
+<Base title="Security" description="How Aegis v2 protects your vault: Argon2id, XChaCha20-Poly1305, hybrid Ed25519 and ML-DSA-65 signatures, hybrid X25519 and ML-KEM-768 sharing, a published threat model, open source, and a responsible disclosure policy.">
   <PageHero eyebrow="Security" title="Zero-knowledge, <em>documented.</em>" lede="This page is the same material a reviewer would read in the repository, in plain language. Every claim links to the code or document that backs it.">
     <a class="btn btn-ghost" href={`${site.docsUrl}/THREAT_MODEL.md`}>Threat model</a>
     <a class="btn btn-ghost" href={`${site.docsUrl}/CRYPTO.md`}>Cryptography</a>
@@ -17,9 +17,10 @@ import { site } from '../data/site';
       <div class="prose">
         <span class="eyebrow">Architecture</span>
         <h2 style="margin-top:.5rem">One passphrase, one key hierarchy</h2>
-        <p>Your passphrase is stretched with Argon2id into a key-encryption key. That key unwraps a random 32-byte master secret, and every other key is derived from the master secret with HKDF-SHA256 under a domain-separated label.</p>
-        <p>Changing the passphrase re-wraps the master secret only, so the vault is never decrypted and re-encrypted in bulk. A recovery key wraps the same master secret independently.</p>
-        <p>In the browser, all of this runs in WebAssembly compiled from the <code>common</code> Rust crate. Sealed blobs live in IndexedDB. No key material is written to disk unencrypted.</p>
+        <p>Your passphrase is stretched with Argon2id, at 64 MiB or more, into a wrapping key. That key unwraps a random 256-bit root secret that exists only in memory while the vault is open, and every other key is derived from it with HKDF-SHA256, salted with the vault's id.</p>
+        <p>Changing the passphrase re-wraps the root secret only. Rotating your keys mints a new root secret, increments the vault's key epoch and replaces the sync and share identities, and it never happens silently.</p>
+        <p>A Recovery Kit wraps the same root secret under an independent recovery secret that Aegis generates and never stores. A normal backup is different: it carries a data snapshot under its own key and restores as a new identity, so an old backup can never become your live vault.</p>
+        <p>In the browser, all of this runs in WebAssembly compiled from the <code>common</code> Rust crate, behind a strict Content Security Policy with no remote scripts. Sealed blobs live in IndexedDB. No key material is written to disk unencrypted.</p>
       </div>
       <div class="tree"><KeyTree /></div>
     </div>
@@ -27,31 +28,30 @@ import { site } from '../data/site';
 
   <section class="section section-alt">
     <div class="wrap">
-      <SectionHead eyebrow="Cryptography">Algorithms, <em>version one.</em></SectionHead>
+      <SectionHead eyebrow="Cryptography">Suites, <em>version two.</em></SectionHead>
       <div class="table-wrap">
         <table class="table">
-          <thead><tr><th>Purpose</th><th>Algorithm</th><th>Notes</th></tr></thead>
+          <thead><tr><th>Suite</th><th>Used for</th><th>Algorithms</th></tr></thead>
           <tbody>
-            <tr><td>Passphrase KDF</td><td class="mono">Argon2id</td><td>16-byte salt; profiles below</td></tr>
-            <tr><td>Vault and envelope AEAD</td><td class="mono">XChaCha20-Poly1305</td><td>24-byte nonce, 16-byte tag</td></tr>
-            <tr><td>Key derivation</td><td class="mono">HKDF-SHA256</td><td>Domain-separated labels</td></tr>
-            <tr><td>Sync write authorisation</td><td class="mono">Ed25519</td><td>Contract verifies under the owner key</td></tr>
-            <tr><td>Share key wrap (planned)</td><td class="mono">X25519 + HKDF + AEAD</td><td>Capability-wrapped item keys</td></tr>
+            <tr><td class="mono">0x0002 Core</td><td>Vault, audit log, backups, Recovery Kit</td><td>Argon2id, XChaCha20-Poly1305, HKDF-SHA256</td></tr>
+            <tr><td class="mono">0x0003 Sync</td><td>Multi-device revisions and identity transitions</td><td>Ed25519 <strong>and</strong> ML-DSA-65, both must verify</td></tr>
+            <tr><td class="mono">0x0004 Share</td><td>Sealing one entry to another user</td><td>X25519 <strong>and</strong> ML-KEM-768, combined, plus hybrid signatures</td></tr>
+            <tr><td class="mono">0x0001 Legacy</td><td>Version 0.1 vaults</td><td>Decode and migrate only. Never written by v2.</td></tr>
           </tbody>
         </table>
       </div>
-      <h3 class="sub">KDF profiles</h3>
+      <h3 class="sub">Passphrase stretching</h3>
       <div class="table-wrap">
         <table class="table">
-          <thead><tr><th>Profile</th><th>Memory</th><th>Iterations</th><th>Parallelism</th><th>Use</th></tr></thead>
+          <thead><tr><th>Parameter</th><th>Value</th><th>Notes</th></tr></thead>
           <tbody>
-            <tr><td class="mono">Interactive</td><td>64 MiB</td><td>3</td><td>1</td><td>Default desktop</td></tr>
-            <tr><td class="mono">Mobile</td><td>32 MiB</td><td>2</td><td>1</td><td>Constrained devices</td></tr>
-            <tr><td class="mono">High</td><td>128 MiB</td><td>4</td><td>2</td><td>High-security vaults</td></tr>
+            <tr><td>Argon2id memory</td><td>64 MiB floor, 128 MiB preferred</td><td>Chosen per device; 256 MiB cap. Lower profiles cannot be generated.</td></tr>
+            <tr><td>Iterations, parallelism</td><td>3, 1</td><td>Caps of 8 and 4. Work factor is checked before allocation.</td></tr>
+            <tr><td>Passphrase floor</td><td>12 characters</td><td>A short denylist of obviously weak strings is rejected.</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="fine">All sealed blobs carry a version and kind in an <code>AegisEnvelopeV1</code> header with associated data <code>aegis/v1 || kind || vault_id || logical_id</code>, so a blob cannot be swapped into a different role.</p>
+      <p class="fine">Every external file starts with a magic string and version that are checked before any parsing: <code>AEGIS_VAULT_V2</code>, <code>AEGIS_BACKUP_V2</code>, <code>AEGIS_RECOVERY_V2</code>, <code>AEGIS_SYNC_V2</code>. A malformed v2 object is never retried as v1. Post-quantum primitives are pinned to FIPS 203 (ML-KEM-768) and FIPS 204 (ML-DSA-65) and checked against the official test vectors in CI.</p>
     </div>
   </section>
 
@@ -62,12 +62,15 @@ import { site } from '../data/site';
         <table class="table">
           <thead><tr><th>Adversary</th><th>Protected</th><th>Notes</th></tr></thead>
           <tbody>
-            <tr><td>Network observer or malicious relay peer</td><td class="yes">Yes</td><td>Sees ciphertext and coarse metadata: size and timing.</td></tr>
+            <tr><td>Network observer or malicious relay peer</td><td class="yes">Yes</td><td>Sees ciphertext and coarse metadata: size and timing. Forging a revision needs both Ed25519 and ML-DSA-65 broken.</td></tr>
             <tr><td>Server or peer hosting sync state</td><td class="yes">Yes</td><td>Untrusted. It validates signatures and stores bytes.</td></tr>
             <tr><td>Rinse Repeat Labs</td><td class="yes">Yes</td><td>We hold no key that opens a vault. A subpoena yields ciphertext.</td></tr>
-            <tr><td>Stolen locked device</td><td class="yes">Yes</td><td>At-rest AEAD. Offline strength is passphrase entropy plus Argon2id.</td></tr>
+            <tr><td>Stolen locked device</td><td class="yes">Yes</td><td>At-rest AEAD. Offline strength is passphrase entropy plus Argon2id at 64 MiB or more.</td></tr>
+            <tr><td>Stolen backup file</td><td class="yes">Yes</td><td>An offline attack on that backup's passphrase only. The backup never contains the live root secret.</td></tr>
+            <tr><td>Stolen Recovery Kit without its secret</td><td class="yes">Yes</td><td>The kit holds a wrapped root secret and no passwords. The recovery secret is never persisted.</td></tr>
             <tr><td>Other websites in the same browser</td><td class="part">Mostly</td><td>Origin isolation. A passphrase typed into a phishing copy of the UI is not protected.</td></tr>
-            <tr><td>Malicious update to the Aegis UI</td><td class="part">Partial</td><td>Reproducible builds and published hashes let you verify; a hostile UI can still read an unlocked vault.</td></tr>
+            <tr><td>Malicious update to the Aegis UI</td><td class="part">Partial</td><td>Strict CSP, self-hosted scripts and published hashes let you verify; a hostile UI can still read an unlocked vault.</td></tr>
+            <tr><td>Long-term harvest of ciphertext against a future crypto break</td><td class="part">Reduced</td><td>Sync and shares require breaking a classical and a post-quantum scheme together. Storage stays classical AEAD.</td></tr>
             <tr><td>Stolen unlocked device or memory dump</td><td class="no">No</td><td>The classic password-manager limit. Lock the vault when you step away.</td></tr>
             <tr><td>Coercion or duress</td><td class="no">No</td><td>Out of scope.</td></tr>
           </tbody>
@@ -97,7 +100,27 @@ import { site } from '../data/site';
 
   <section class="section">
     <div class="wrap">
-      <div class="notice"><strong>Audit status.</strong> Aegis has not yet been independently audited. The cryptography and threat model are published for public review now, and an independent audit is planned before Teams leaves early access. The report will be linked here when it exists.</div>
+      <div class="grid-2">
+        <div class="prose">
+          <h3>What v2 was checked against</h3>
+          <ul>
+            <li>Adversarial design review of the frozen v2 contract and every implementation phase</li>
+            <li>42 of 42 browser scenarios in Chromium and Firefox: backup and restore, Recovery Kit, rotation, hybrid share, old-epoch rejection, local sync</li>
+            <li>79.8 million fuzzer inputs across seven parser surfaces with no crashes, hangs or memory exhaustion</li>
+            <li>FIPS 203 and FIPS 204 test vectors, frozen v1 fixtures, RustSec and cargo-deny in CI</li>
+          </ul>
+        </div>
+        <div class="prose">
+          <h3>What is not claimed</h3>
+          <ul>
+            <li>Formal verification, or absolute security</li>
+            <li>An independent professional audit. One is planned before Teams leaves early access, and the report will be linked here when it exists.</li>
+            <li>Protection of an unlocked vault against a memory dump</li>
+            <li>Clickjacking protection on GitHub Pages, where CSP is a meta tag and <code>frame-ancestors</code> is not enforced</li>
+            <li>Detecting a stale Recovery Kit on an empty install, or a coherent older sync snapshot when no newer counter was kept</li>
+          </ul>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -107,9 +130,11 @@ import { site } from '../data/site';
   .two { display: grid; grid-template-columns: 1fr 1.1fr; gap: 4rem; align-items: center; }
   .tree { background: var(--ink); border: 1px solid var(--line-dark); border-radius: var(--radius); padding: 1.75rem; }
   .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.5rem; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; }
+  .grid-2 h3 { margin-top: 0; }
   .sub { font-size: 1rem; font-weight: 600; margin: 2rem 0 .75rem; }
   .fine { margin-top: 1rem; font-size: .88rem; color: var(--muted); }
   .fine code { font-family: var(--mono); font-size: .85em; }
   .fine a { color: var(--accent); }
-  @media (max-width: 900px) { .two, .three { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .two, .three, .grid-2 { grid-template-columns: 1fr; } }
 </style>
