@@ -1,5 +1,32 @@
 # Changelog
 
+## [2.0.0-rc.1] — 2026-09-07
+
+Aegis v2 has completed its planned architecture, implementation, adversarial review, browser validation, fuzzing, and security-CI gates; this does not constitute a claim of formal verification or absolute security.
+
+Tree: `b33e6eb` on `main`. Crate versions remain `0.1.0` until the eventual `v2.0.0` cut.
+
+### Release-candidate gates
+
+- Architecture contract, Phases 0–10 / PRs B–L, and §72 implementation review: accepted
+- Production UI/WASM: 42/42 Chromium 153.0.8010.12, 42/42 Firefox 155.0 (IndexedDB, backup/restore, Recovery Kit, rotation, hybrid share, old-epoch share rejection, local v2 VaultSync)
+- Dedicated libFuzzer campaigns: 79,818,627 inputs across seven parser surfaces; no crashes, hangs, or OOMs
+- Hosted GitHub Actions: Rust tests, WASM, UI, CSP, frozen v1 fixtures, ML-DSA/ML-KEM ACVP, RustSec, cargo-deny, production `npm audit --omit=dev`
+
+### v2 behavior (relative to 0.1.x)
+
+- Independent `.aegis` backups mint a **new** live identity; Recovery Kit + secret preserve identity
+- Atomic persistence / candidate-then-commit; passphrase change does not rotate `RootSecret`
+- Explicit cryptographic rotation increments `key_epoch` and invalidates unopened hybrid shares to the old identity
+- Hybrid PQ sync/share suites (`0x0003` / `0x0004`); expected-sender required to open a share
+
+### Not claimed / not reopened
+
+- Not formally verified; not a claim of absolute security
+- Documented limits remain: coherent local rollback without retained newer state; empty-install stale-kit detection; unlocked-process memory; GitHub Pages meta-CSP cannot enforce `frame-ancestors`
+- Freenet mesh Sync is still peer-gated; production browser UI disables it without a peer
+- Independent professional cryptographic audit would be additional assurance, not an unresolved defect from this review
+
 ## [0.1.1] — 2026-07-26
 
 ### Multi-device / unlock UX
