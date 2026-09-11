@@ -52,7 +52,7 @@ pub struct VaultSessionV2 {
 
 impl VaultSessionV2 {
     pub fn create(store: &mut dyn SecretStore, passphrase: &str) -> Result<Self, VaultError> {
-        Self::create_with_params(store, passphrase, Argon2ParamsV2::generate_v2())
+        Self::create_with_params(store, passphrase, Argon2ParamsV2::for_generate())
     }
 
     pub fn create_with_params(
@@ -552,7 +552,7 @@ impl VaultSessionV2 {
             self.vault_id,
             &self.doc,
             &self.audit,
-            Argon2ParamsV2::generate_v2(),
+            Argon2ParamsV2::for_generate(),
             forbidden,
         )
         .map_err(Into::into)
@@ -1326,7 +1326,7 @@ fn unwrap_root_for_session(
     passphrase: &str,
     envelope: &MasterEnvelopeV2,
 ) -> Result<RootSecret, VaultError> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "insecure-kdf"))]
     {
         if envelope.kdf.memory_kib < crate::crypto::V2_MIN_MEMORY_KIB {
             return crate::crypto::envelope_v2::unwrap_root_v2_unit_test(passphrase, envelope)
@@ -1341,7 +1341,7 @@ fn wrap_root_v2_with_checked(
     vault_id: [u8; 16],
     kdf: Argon2ParamsV2,
 ) -> Result<(MasterEnvelopeV2, RootSecret), VaultError> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "insecure-kdf"))]
     {
         if kdf.memory_kib < crate::crypto::V2_MIN_MEMORY_KIB {
             let root = RootSecret::random();

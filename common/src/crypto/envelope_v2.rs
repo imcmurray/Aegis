@@ -158,7 +158,22 @@ pub fn wrap_root_v2(
     passphrase: &str,
     vault_id: [u8; 16],
 ) -> Result<(MasterEnvelopeV2, RootSecret), CryptoError> {
-    wrap_root_v2_with_params(passphrase, vault_id, Argon2ParamsV2::generate_v2())
+    let kdf = Argon2ParamsV2::for_generate();
+    #[cfg(any(test, feature = "insecure-kdf"))]
+    {
+        if matches!(kdf.generate_context(), crate::crypto::KdfContext::V2UnitTest) {
+            let root = RootSecret::random();
+            let env = wrap_existing_root_v2_unit_test(
+                passphrase,
+                vault_id,
+                KEY_EPOCH_INITIAL,
+                &kdf,
+                &root,
+            )?;
+            return Ok((env, root));
+        }
+    }
+    wrap_root_v2_with_params(passphrase, vault_id, kdf)
 }
 
 pub fn wrap_root_v2_with_params(
@@ -210,7 +225,7 @@ pub fn wrap_existing_root_v2_legacy_passphrase(
     )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "insecure-kdf"))]
 pub(crate) fn wrap_existing_root_v2_unit_test(
     passphrase: &str,
     vault_id: [u8; 16],
@@ -275,7 +290,7 @@ pub fn unwrap_root_v2(
     Ok(RootSecret::from_bytes(arr))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "insecure-kdf"))]
 pub(crate) fn unwrap_root_v2_unit_test(
     passphrase: &str,
     env: &MasterEnvelopeV2,

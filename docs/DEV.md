@@ -1,12 +1,25 @@
 # Aegis development guide
 
-## Three vault backends
+## Vault backends
 
 | Mode | URL | Crypto | When to use |
 |------|-----|--------|-------------|
+| **browser** | `/` | Real WASM | Default product |
+| **native CLI** | `aegis` | Real native (`FileStore`) | Desktop / scripts / future overlays |
 | **mock** | `http://localhost:5173/` or `?mode=mock` | Browser Web Crypto (weak) | UI-only iteration |
-| **dev** | `?mode=dev` | **Real** Argon2id + XChaCha20 via Rust | Default for security-sensitive testing |
+| **dev** | `?mode=dev` | **Real** Argon2id + XChaCha20 via Rust HTTP | Contributor UI testing |
 | **freenet** | `?mode=freenet` | Real crypto in vault-delegate WASM | On a Freenet peer |
+
+### Native CLI
+
+```bash
+cargo run -p aegis-cli -- --help
+cargo run -p aegis-cli -- status
+# tests / smoke (tiny Argon2 — not production)
+AEGIS_KDF=test cargo run -p aegis-cli -- --data-dir /tmp/aegis-smoke create
+```
+
+Data: `$AEGIS_DATA` or `~/.local/share/aegis/` (not `aegis-dev`). Agent socket: `$XDG_RUNTIME_DIR/aegis/agent.sock`. See [CLI.md](./CLI.md).
 
 ## Quick paths
 

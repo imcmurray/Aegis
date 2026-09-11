@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Native CLI
+
+- Production `aegis` binary (`tools/cli`, package `aegis-cli`): file-backed vault under `~/.local/share/aegis/`, unix-socket session agent, JSON/CBOR `VaultRequest` RPC (`--protocol-version` = 1)
+- Not a wrapper around `aegis-dev-vault-server`; no TCP
+- `cargo install --path tools/cli` — see [docs/CLI.md](docs/CLI.md)
+
 ## [2.0.0-rc.1] — 2026-09-06
 
 Aegis v2 has completed its planned architecture, implementation, adversarial review, browser validation, fuzzing, and security-CI gates; this does not constitute a claim of formal verification or absolute security.

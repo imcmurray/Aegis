@@ -13,6 +13,10 @@ freenet-host = ["dep:freenet-stdlib", "getrandom/custom"]
 # Frozen v1 fixture regen / compatibility helpers. Not a production path.
 # Enables VaultSession::create, import_bundle, and try_resume outside unit tests.
 v1-fixtures = []
+# Tiny Argon2 for native CLI tests (`AEGIS_KDF=test`). Not a WASM/production
+# generate path. Unlock of envelopes below the 64 MiB floor stays fail-closed
+# in builds without this feature (browser-wasm, vault-delegate).
+insecure-kdf = []
 
 [dependencies]
 serde = { workspace = true }

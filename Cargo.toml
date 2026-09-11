@@ -6,6 +6,7 @@ members = [
     "tools/dev-vault-server",
     "tools/wasm-hash",
     "tools/browser-wasm",
+    "tools/cli",
 ]
 resolver = "2"
 

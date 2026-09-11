@@ -26,8 +26,8 @@ pub enum KdfContext {
     V2Generate,
     /// Imported v2 envelopes. Same floor as generate (v1 Mobile is v1-decoder only).
     V2Import,
-    /// Library unit tests (`cfg(test)` only). Never present in production builds.
-    #[cfg(test)]
+    /// Library unit tests and native CLI `AEGIS_KDF=test`. Never a WASM generate path.
+    #[cfg(any(test, feature = "insecure-kdf"))]
     V2UnitTest,
 }
 
@@ -45,6 +45,41 @@ pub struct Argon2ParamsV2 {
 }
 
 impl Argon2ParamsV2 {
+    /// Production generate, or tiny params when `AEGIS_KDF=test` in CLI/unit tests.
+    pub fn for_generate() -> Self {
+        #[cfg(any(test, feature = "insecure-kdf"))]
+        {
+            if std::env::var("AEGIS_KDF")
+                .ok()
+                .map(|v| v.eq_ignore_ascii_case("test"))
+                .unwrap_or(false)
+            {
+                return Self::insecure_for_tests();
+            }
+        }
+        Self::generate_v2()
+    }
+
+    pub fn generate_context(&self) -> KdfContext {
+        #[cfg(any(test, feature = "insecure-kdf"))]
+        {
+            if self.memory_kib == 8 && self.iterations == 1 && self.parallelism == 1 {
+                return KdfContext::V2UnitTest;
+            }
+        }
+        KdfContext::V2Generate
+    }
+
+    pub fn import_context(&self) -> KdfContext {
+        #[cfg(any(test, feature = "insecure-kdf"))]
+        {
+            if self.memory_kib == 8 && self.iterations == 1 && self.parallelism == 1 {
+                return KdfContext::V2UnitTest;
+            }
+        }
+        KdfContext::V2Import
+    }
+
     /// Production v2 generation: 64 MiB, t=3, p=1, random salt.
     pub fn generate_v2() -> Self {
         let mut salt = vec![0u8; SALT_LEN];
@@ -61,7 +96,7 @@ impl Argon2ParamsV2 {
     }
 
     /// Tiny params for unit tests of the v2 *format*. Not a production constructor.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "insecure-kdf"))]
     pub fn insecure_for_tests() -> Self {
         let mut salt = vec![0u8; SALT_LEN];
         crate::rng::fill_random(&mut salt);
@@ -104,7 +139,7 @@ impl Argon2ParamsV2 {
                     return Err(CryptoError::InvalidKdfParams);
                 }
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "insecure-kdf"))]
             KdfContext::V2UnitTest => {}
         }
         Ok(())

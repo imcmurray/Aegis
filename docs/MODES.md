@@ -1,13 +1,16 @@
-# Aegis modes — browser, Freenet, or local server
+# Aegis modes — browser, native CLI, Freenet, or local server
 
 You can use Aegis **without Freenet**. Freenet is an **optional** backend.
 
 | Mode | URL | Needs | Crypto | Storage |
 |------|-----|--------|--------|---------|
 | **browser** (default) | `/` or `?mode=browser` | Just a browser | Real (WASM Argon2id + XChaCha20) | IndexedDB on that browser |
+| **native CLI** | _(none — not a web UI)_ | `aegis` binary | Real (native Rust, same `dispatch`) | `~/.local/share/aegis/` |
 | **freenet** | `?mode=freenet` or Freenet web container | Local Freenet peer | Real (vault-delegate) | Freenet secret store |
 | **dev** | `?mode=dev` | `aegis-dev-vault-server` | Real (native Rust) | `~/.local/share/aegis-dev` |
 | **mock** | `?mode=mock` | Nothing | Weak (demo only) | Memory / storage helper |
+
+Native CLI is a **fourth production backend**, not a wrapper around the dev HTTP server. No TCP. See [CLI.md](./CLI.md).
 
 ## Recommended for most people (including GitHub Pages)
 

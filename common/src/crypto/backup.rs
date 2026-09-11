@@ -109,12 +109,15 @@ pub fn create_backup(
     document: &VaultDocument,
     audit: &[AuditEvent],
 ) -> Result<Vec<u8>, CryptoError> {
-    create_backup_with_params(
+    let kdf = Argon2ParamsV2::for_generate();
+    let ctx = kdf.generate_context();
+    create_backup_with_ctx(
         backup_passphrase,
         original_vault_id,
         document,
         audit,
-        Argon2ParamsV2::generate_v2(),
+        kdf,
+        ctx,
         &[],
     )
 }
@@ -127,8 +130,29 @@ pub fn create_backup_with_params(
     kdf: Argon2ParamsV2,
     forbidden_secrets: &[&[u8]],
 ) -> Result<Vec<u8>, CryptoError> {
+    let ctx = kdf.generate_context();
+    create_backup_with_ctx(
+        backup_passphrase,
+        original_vault_id,
+        document,
+        audit,
+        kdf,
+        ctx,
+        forbidden_secrets,
+    )
+}
+
+fn create_backup_with_ctx(
+    backup_passphrase: &str,
+    original_vault_id: [u8; 16],
+    document: &VaultDocument,
+    audit: &[AuditEvent],
+    kdf: Argon2ParamsV2,
+    kdf_ctx: KdfContext,
+    forbidden_secrets: &[&[u8]],
+) -> Result<Vec<u8>, CryptoError> {
     validate_v2_passphrase(backup_passphrase)?;
-    kdf.validate(KdfContext::V2Generate)?;
+    kdf.validate(kdf_ctx)?;
     validate_payload_document(document)?;
 
     let mut container_id = [0u8; 16];
@@ -154,7 +178,7 @@ pub fn create_backup_with_params(
     let kdf_aad = kdf.aad_bytes();
     let wrap_aad = build_backup_wrap_transcript(&container_id, &kdf_aad);
     let payload_aad = build_backup_payload_transcript(&container_id, &kdf_aad);
-    let kek = derive_backup_wrap_kek(backup_passphrase, &kdf, KdfContext::V2Generate)?;
+    let kek = derive_backup_wrap_kek(backup_passphrase, &kdf, kdf_ctx)?;
     let (key_wrap_nonce, wrapped_backup_key) =
         aead::seal(kek.as_bytes(), &wrap_aad, backup_key.as_bytes())?;
     let (payload_nonce, encrypted_payload) =
@@ -186,10 +210,11 @@ pub fn authenticate_backup(
         return Err(CryptoError::ResourceLimit);
     }
     let env = BackupEnvelopeV2::from_bytes(bytes)?;
-    env.kdf.validate(KdfContext::V2Import)?;
+    let kdf_ctx = env.kdf.import_context();
+    env.kdf.validate(kdf_ctx)?;
     let container_id = env.container_id_bytes()?;
     let kdf_aad = env.kdf.aad_bytes();
-    let kek = derive_backup_wrap_kek(backup_passphrase, &env.kdf, KdfContext::V2Import)?;
+    let kek = derive_backup_wrap_kek(backup_passphrase, &env.kdf, kdf_ctx)?;
 
     let wrap_aad = build_backup_wrap_transcript(&container_id, &kdf_aad);
     let key_pt = aead::open(

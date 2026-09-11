@@ -1,6 +1,6 @@
 # How to use Aegis (for everyone)
 
-Aegis is a password manager that works in three ways. **You do not need Freenet** to get started.
+Aegis is a password manager that works in the browser, as a native CLI, or (optionally) on Freenet. **You do not need Freenet** to get started.
 
 ## 1. Open in the browser (recommended)
 
@@ -30,7 +30,22 @@ Your sealed vault lives in **this browser’s IndexedDB**. Clearing site data de
 2. Open Aegis on the new browser
 3. Import the file + passphrase
 
-## 2. Optional: Freenet
+## 2. Native CLI (desktop)
+
+```bash
+cargo install --path tools/cli
+aegis create          # passphrase via tty (never argv)
+aegis unlock
+aegis search github
+aegis copy <id>       # clipboard wipe after 30s
+aegis export vault.aegis
+```
+
+Sealed vault: `~/.local/share/aegis/`. Session lives in `aegis agent` (unix socket). Export/import `.aegis` files round-trip with the browser UI (restore uses a **new** live passphrase, not the backup password).
+
+Details: [CLI.md](./CLI.md)
+
+## 3. Optional: Freenet
 
 For Freenet-native hosting and (later) multi-device mesh sync:
 
@@ -40,7 +55,7 @@ For Freenet-native hosting and (later) multi-device mesh sync:
 
 Details: [FREENET.md](./FREENET.md) · [PUBLISH.md](./PUBLISH.md)
 
-## 3. Optional: Dev server (developers)
+## 4. Optional: Dev server (developers)
 
 ```bash
 cargo run -p aegis-dev-vault-server
@@ -52,6 +67,7 @@ cargo run -p aegis-dev-vault-server
 | Mode | Query | Needs |
 |------|--------|--------|
 | Browser (default) | _(none)_ or `?mode=browser` | Browser only |
+| Native CLI | `aegis` | `~/.local/share/aegis/` |
 | Freenet | `?mode=freenet` | Local Freenet peer |
 | Dev | `?mode=dev` | Rust vault server on :8787 |
 | Mock | `?mode=mock` | Demo only — not for real secrets |

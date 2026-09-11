@@ -5,6 +5,7 @@
 | Who | How |
 |-----|-----|
 | **Everyone** | Open the site → **browser vault** (WASM + IndexedDB). No install. |
+| **Desktop (native CLI)** | `aegis` — file-backed vault under `~/.local/share/aegis/` |
 | **Freenet users** | Optional `?mode=freenet` with a local peer |
 | **Developers** | Optional `?mode=dev` Rust server |
 
@@ -26,6 +27,7 @@ You do **not** need Freenet. See [docs/ACCESS.md](docs/ACCESS.md).
 | Mode | URL | Needs |
 |------|-----|--------|
 | **browser** (default) | `/` | Browser only |
+| **native CLI** | `aegis` (no URL) | `cargo install --path tools/cli` |
 | freenet | `?mode=freenet&register=1` | `freenet local` |
 | dev | `?mode=dev` | `cargo run -p aegis-dev-vault-server` |
 | mock | `?mode=mock` | Demo only |
@@ -86,6 +88,7 @@ cargo test --workspace
 | [docs/PUBLISH.md](docs/PUBLISH.md) | Freenet web container publish |
 | [docs/VAULTSYNC.md](docs/VAULTSYNC.md) | Multi-device mesh Sync (hybrid Ed25519 **and** ML-DSA-65) |
 | [docs/DEV.md](docs/DEV.md) | Local development |
+| [docs/CLI.md](docs/CLI.md) | Native `aegis` CLI (unix agent, JSON/CBOR RPC) |
 | [docs/RC-TEST-CHECKLIST.md](docs/RC-TEST-CHECKLIST.md) | Human soak for `v2.0.0-rc.1` (not a security claim) |
 
 ## Layout
@@ -96,6 +99,7 @@ Aegis/
 ├── contracts/vault-sync/     # encrypted multi-device contract (WASM)
 ├── delegates/vault-delegate/ # Freenet private vault agent (WASM)
 ├── tools/browser-wasm/       # browser vault (wasm-bindgen)
+├── tools/cli/                # native `aegis` CLI (file-backed)
 ├── tools/dev-vault-server/   # local HTTP vault
 ├── ui/                       # TypeScript + Vite
 ├── scripts/                  # build, package, publish, pages
