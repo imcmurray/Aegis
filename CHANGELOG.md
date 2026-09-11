@@ -7,6 +7,7 @@
 - Production `aegis` binary (`tools/cli`, package `aegis-cli`): file-backed vault under `~/.local/share/aegis/`, unix-socket session agent, JSON/CBOR `VaultRequest` RPC (`--protocol-version` = 1)
 - Not a wrapper around `aegis-dev-vault-server`; no TCP
 - `cargo install --path tools/cli` — see [docs/CLI.md](docs/CLI.md)
+- `aegis import --replace` restores a `.aegis` backup over an existing vault (still requires a new live passphrase)
 
 ## [2.0.0-rc.1] — 2026-09-06
 

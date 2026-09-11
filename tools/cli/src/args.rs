@@ -73,6 +73,10 @@ pub enum Command {
         path: PathBuf,
         #[arg(long)]
         preview: bool,
+        /// Wipe an existing vault and restore this backup. Default refuses if a
+        /// vault is already present. D18 still requires a new live passphrase.
+        #[arg(long)]
+        replace: bool,
         #[arg(long)]
         backup_passphrase_file: Option<PathBuf>,
         #[arg(long)]

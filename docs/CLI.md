@@ -81,6 +81,7 @@ aegis get <id> [--json | --reveal]
 aegis export <path.aegis>
 aegis import <path.aegis>
 aegis import --preview <path.aegis>
+aegis import --replace <path.aegis>   # wipe existing vault, then restore; still requires a new live passphrase
 aegis rpc [--cbor]
 ```
 

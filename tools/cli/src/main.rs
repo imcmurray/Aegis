@@ -190,6 +190,7 @@ fn run(
         Command::Import {
             path,
             preview,
+            replace,
             backup_passphrase_file,
             new_passphrase_file,
         } => {
@@ -226,7 +227,7 @@ fn run(
                         blob,
                         passphrase: bpw.to_string(),
                         new_passphrase: Some(npw.to_string()),
-                        replace: false,
+                        replace,
                     },
                 )?,
             )

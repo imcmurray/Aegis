@@ -284,6 +284,93 @@ fn export_import_new_identity() {
 }
 
 #[test]
+fn import_without_replace_refuses_existing_vault() {
+    let h = Harness::new();
+    h.run_pw(&["create"], &h.pwfile);
+    h.run_pw(&["unlock"], &h.pwfile);
+    let upsert = r#"{"op":"upsert_entry","entry":{"id":"dddddddddddddddddddddddddddddddd","folder_id":null,"name":"Old","urls":[],"username":"u","password":"old-pw","notes":"","custom_fields":[],"tags":[],"created_at":1,"updated_at":1}}"#;
+    h.rpc_line(upsert);
+    let backup_pw = h._tmp.0.join("backup-pw");
+    write_secret_file(&backup_pw, "backup horse battery");
+    let aegis = h._tmp.0.join("vault.aegis");
+    let (c, o, e) = h.run(&[
+        "export",
+        aegis.to_str().unwrap(),
+        "--backup-passphrase-file",
+        backup_pw.to_str().unwrap(),
+    ]);
+    assert_eq!(c, 0, "export: {e} {o}");
+
+    let live2 = h._tmp.0.join("live2");
+    write_secret_file(&live2, "another horse battery staple");
+    let (c, o, e) = h.run(&[
+        "--json",
+        "import",
+        aegis.to_str().unwrap(),
+        "--backup-passphrase-file",
+        backup_pw.to_str().unwrap(),
+        "--new-passphrase-file",
+        live2.to_str().unwrap(),
+    ]);
+    assert_ne!(c, 0, "import without --replace should fail: {o} {e}");
+    assert!(
+        e.to_lowercase().contains("already exists")
+            || o.contains("already exists")
+            || o.contains("\"code\""),
+        "expected already-exists: stdout={o} stderr={e}"
+    );
+}
+
+#[test]
+fn import_replace_overwrites_and_search_finds_entry() {
+    let src = Harness::new();
+    src.run_pw(&["create"], &src.pwfile);
+    src.run_pw(&["unlock"], &src.pwfile);
+    let upsert = r#"{"op":"upsert_entry","entry":{"id":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","folder_id":null,"name":"ImportedMail","urls":["https://mail.example"],"username":"ada","password":"inbox-secret","notes":"hi","custom_fields":[],"tags":[],"created_at":1,"updated_at":1}}"#;
+    src.rpc_line(upsert);
+    let backup_pw = src._tmp.0.join("backup-pw");
+    write_secret_file(&backup_pw, "backup horse battery");
+    let aegis = src._tmp.0.join("vault.aegis");
+    let (c, o, e) = src.run(&[
+        "export",
+        aegis.to_str().unwrap(),
+        "--backup-passphrase-file",
+        backup_pw.to_str().unwrap(),
+    ]);
+    assert_eq!(c, 0, "export: {e} {o}");
+
+    let dest = Harness::new();
+    dest.run_pw(&["create"], &dest.pwfile);
+    dest.run_pw(&["unlock"], &dest.pwfile);
+    dest.rpc_line(r#"{"op":"upsert_entry","entry":{"id":"ffffffffffffffffffffffffffffffff","folder_id":null,"name":"Old","urls":[],"username":"u","password":"old-pw","notes":"","custom_fields":[],"tags":[],"created_at":1,"updated_at":1}}"#);
+    dest.run(&["lock"]);
+    dest.stop_agent();
+    let live2 = dest._tmp.0.join("live2");
+    write_secret_file(&live2, "another horse battery staple");
+    let (c, o, e) = dest.run(&[
+        "--json",
+        "import",
+        "--replace",
+        "--backup-passphrase-file",
+        backup_pw.to_str().unwrap(),
+        "--new-passphrase-file",
+        live2.to_str().unwrap(),
+        aegis.to_str().unwrap(),
+    ]);
+    assert_eq!(c, 0, "import --replace: {e} {o}");
+
+    let (c, o, e) = dest.run_pw(&["unlock"], &live2);
+    assert_eq!(c, 0, "unlock imported: {e} {o}");
+    let (c, o, e) = dest.run(&["search", "ImportedMail"]);
+    assert_eq!(c, 0, "search: {e} {o}");
+    assert!(o.contains("ImportedMail"), "{o}");
+    assert!(!o.contains("inbox-secret"), "search leaked password: {o}");
+    let (c, o, e) = dest.run(&["search", "Old"]);
+    assert_eq!(c, 0, "{e} {o}");
+    assert!(!o.contains("Old\t"), "old vault entry survived replace: {o}");
+}
+
+#[test]
 fn rpc_json_status_list_lock() {
     let h = Harness::new();
     h.run_pw(&["create"], &h.pwfile);
