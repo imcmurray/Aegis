@@ -1,13 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.0-rc.1.1] — 2026-09-11
+
+Follow-on to `v2.0.0-rc.1` (semver spelling of an rc1-1). Crypto/protocol unchanged. Application version is `2.0.0-rc.1.1`.
 
 ### Native CLI
 
-- Production `aegis` binary (`tools/cli`, package `aegis-cli`): file-backed vault under `~/.local/share/aegis/`, unix-socket session agent, JSON/CBOR `VaultRequest` RPC (`--protocol-version` = 1)
-- Not a wrapper around `aegis-dev-vault-server`; no TCP
-- `cargo install --path tools/cli` — see [docs/CLI.md](docs/CLI.md)
-- `aegis import --replace` restores a `.aegis` backup over an existing vault (still requires a new live passphrase)
+- Production `aegis` binary (`tools/cli`): file-backed vault under `~/.local/share/aegis/`, unix-socket session agent, JSON/CBOR RPC (`--protocol-version` = 1)
+- `aegis import --replace` wipes an existing vault and restores `.aegis` **data** as a **new** live identity (D18: new live passphrase ≠ backup password). Default import still refuses if a vault exists. Not Recovery Kit identity-preserving restore. `--preview` conflicts with `--replace`.
+- See [docs/CLI.md](docs/CLI.md)
 
 ## [2.0.0-rc.1] — 2026-09-06
 

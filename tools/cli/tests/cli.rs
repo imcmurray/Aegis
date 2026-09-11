@@ -125,6 +125,19 @@ impl Drop for Harness {
     }
 }
 
+fn json_vault_id(stdout: &str) -> Option<String> {
+    let key = "\"vault_id\":\"";
+    let i = stdout.find(key)? + key.len();
+    let rest = &stdout[i..];
+    let end = rest.find('"')?;
+    let id = &rest[..end];
+    if id.is_empty() || id == "null" {
+        None
+    } else {
+        Some(id.to_string())
+    }
+}
+
 fn write_secret_file(path: &Path, s: &str) {
     fs::write(path, s).unwrap();
     let mut p = fs::metadata(path).unwrap().permissions();
@@ -342,6 +355,9 @@ fn import_replace_overwrites_and_search_finds_entry() {
     let dest = Harness::new();
     dest.run_pw(&["create"], &dest.pwfile);
     dest.run_pw(&["unlock"], &dest.pwfile);
+    let (c, o, e) = dest.run(&["--json", "status"]);
+    assert_eq!(c, 0, "dest status: {e} {o}");
+    let dest_id_before = json_vault_id(&o).expect("dest vault_id");
     dest.rpc_line(r#"{"op":"upsert_entry","entry":{"id":"ffffffffffffffffffffffffffffffff","folder_id":null,"name":"Old","urls":[],"username":"u","password":"old-pw","notes":"","custom_fields":[],"tags":[],"created_at":1,"updated_at":1}}"#);
     dest.run(&["lock"]);
     dest.stop_agent();
@@ -361,6 +377,13 @@ fn import_replace_overwrites_and_search_finds_entry() {
 
     let (c, o, e) = dest.run_pw(&["unlock"], &live2);
     assert_eq!(c, 0, "unlock imported: {e} {o}");
+    let (c, o, e) = dest.run(&["--json", "status"]);
+    assert_eq!(c, 0, "status after replace: {e} {o}");
+    let dest_id_after = json_vault_id(&o).expect("dest vault_id after replace");
+    assert_ne!(
+        dest_id_before, dest_id_after,
+        "ordinary --replace restore must mint a new vault_id"
+    );
     let (c, o, e) = dest.run(&["search", "ImportedMail"]);
     assert_eq!(c, 0, "search: {e} {o}");
     assert!(o.contains("ImportedMail"), "{o}");
@@ -368,6 +391,24 @@ fn import_replace_overwrites_and_search_finds_entry() {
     let (c, o, e) = dest.run(&["search", "Old"]);
     assert_eq!(c, 0, "{e} {o}");
     assert!(!o.contains("Old\t"), "old vault entry survived replace: {o}");
+}
+
+#[test]
+fn import_preview_conflicts_with_replace() {
+    let h = Harness::new();
+    let dummy = h._tmp.0.join("x.aegis");
+    fs::write(&dummy, b"not-a-vault").unwrap();
+    let (c, o, e) = h.run(&[
+        "import",
+        "--preview",
+        "--replace",
+        dummy.to_str().unwrap(),
+    ]);
+    assert_ne!(c, 0, "preview+replace should fail: {o} {e}");
+    assert!(
+        e.contains("cannot be used with") || e.contains("conflict") || o.contains("cannot be used with"),
+        "expected clap conflict: stdout={o} stderr={e}"
+    );
 }
 
 #[test]

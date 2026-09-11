@@ -81,11 +81,18 @@ aegis get <id> [--json | --reveal]
 aegis export <path.aegis>
 aegis import <path.aegis>
 aegis import --preview <path.aegis>
-aegis import --replace <path.aegis>   # wipe existing vault, then restore; still requires a new live passphrase
+aegis import --replace <path.aegis>
 aegis rpc [--cbor]
 ```
 
 Add entries with `aegis rpc` `upsert_entry` (no TUI editor in v1).
+
+### Import / `--replace`
+
+- Default `aegis import` **refuses** if a vault already exists (`already_exists`).
+- `--replace` wipes the existing vault and restores **backup data** as a **new** live identity (new `vault_id` / RootSecret). Same D18 rule: `--new-passphrase-file` must differ from the backup password.
+- This is **not** Recovery Kit identity-preserving restore (`import_recovery_kit`).
+- `--preview` is dry-run only and **conflicts** with `--replace`.
 
 ## Copy / wipe
 

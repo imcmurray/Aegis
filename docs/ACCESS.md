@@ -41,7 +41,7 @@ aegis copy <id>       # clipboard wipe after 30s
 aegis export vault.aegis
 ```
 
-Sealed vault: `~/.local/share/aegis/`. Session lives in `aegis agent` (unix socket). Export/import `.aegis` files round-trip with the browser UI (restore uses a **new** live passphrase, not the backup password).
+Sealed vault: `~/.local/share/aegis/`. Session lives in `aegis agent` (unix socket). Export/import `.aegis` files round-trip with the browser UI (restore uses a **new** live passphrase, not the backup password). `aegis import --replace` overwrites an existing vault the same way — still a **new** identity, not Recovery Kit restore.
 
 Details: [CLI.md](./CLI.md)
 

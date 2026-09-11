@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-browser-wasm"
-version = "2.0.0-rc.1"
+version = "2.0.0-rc.1.1"
 dependencies = [
  "aegis-common",
  "console_error_panic_hook",
@@ -23,7 +23,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-cli"
-version = "2.0.0-rc.1"
+version = "2.0.0-rc.1.1"
 dependencies = [
  "aegis-common",
  "ciborium",
@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-common"
-version = "2.0.0-rc.1"
+version = "2.0.0-rc.1.1"
 dependencies = [
  "argon2",
  "blake3",
@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-dev-vault-server"
-version = "2.0.0-rc.1"
+version = "2.0.0-rc.1.1"
 dependencies = [
  "aegis-common",
  "axum",
@@ -83,7 +83,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-vault-delegate"
-version = "2.0.0-rc.1"
+version = "2.0.0-rc.1.1"
 dependencies = [
  "aegis-common",
  "freenet-stdlib",
@@ -91,7 +91,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-vault-sync"
-version = "2.0.0-rc.1"
+version = "2.0.0-rc.1.1"
 dependencies = [
  "aegis-common",
  "blake3",
@@ -103,7 +103,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-wasm-hash"
-version = "2.0.0-rc.1"
+version = "2.0.0-rc.1.1"
 dependencies = [
  "blake3",
  "bs58",
