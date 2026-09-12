@@ -33,7 +33,8 @@ Your sealed vault lives in **this browser’s IndexedDB**. Clearing site data de
 ## 2. Native CLI (desktop)
 
 ```bash
-cargo install --path tools/cli
+# Attested linux-x86_64 binary: see docs/CLI.md (GitHub Release + SHA-256).
+# Developer-only: cargo install --locked --path tools/cli
 aegis create          # passphrase via tty (never argv)
 aegis unlock
 aegis search github

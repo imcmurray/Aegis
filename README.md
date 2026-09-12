@@ -27,7 +27,7 @@ You do **not** need Freenet. See [docs/ACCESS.md](docs/ACCESS.md).
 | Mode | URL | Needs |
 |------|-----|--------|
 | **browser** (default) | `/` | Browser only |
-| **native CLI** | `aegis` (no URL) | `cargo install --path tools/cli` |
+| **native CLI** | `aegis` (no URL) | attested binary from the GitHub Release (see [docs/CLI.md](docs/CLI.md)) |
 | freenet | `?mode=freenet&register=1` | `freenet local` |
 | dev | `?mode=dev` | `cargo run -p aegis-dev-vault-server` |
 | mock | `?mode=mock` | Demo only |

@@ -4,10 +4,27 @@ Production **file-backed** vault backend. Same `VaultRequest` / `VaultResponse` 
 
 Protocol version: **`1`**. `aegis --protocol-version` prints that integer. Bump only when the JSON/CBOR schema breaks.
 
+Install the **attested** linux-x86_64 CLI from the matching GitHub Release
+(built `--locked` on GitHub Actions with rustc 1.98.1, SHA-256 published,
+provenance attested). omarchy-aegis refuses any other binary.
+
 ```bash
-cargo install --path tools/cli
+tag=v2.0.0-rc.1.1
+base=https://github.com/imcmurray/Aegis/releases/download/$tag
+curl -fsSL -o /tmp/SHA256SUMS "$base/SHA256SUMS"
+curl -fsSL -o /tmp/aegis-x86_64-unknown-linux-gnu "$base/aegis-x86_64-unknown-linux-gnu"
+(cd /tmp && sha256sum -c SHA256SUMS --ignore-missing)
+install -D -m 0755 /tmp/aegis-x86_64-unknown-linux-gnu ~/.local/bin/aegis
+rm -f /tmp/aegis-x86_64-unknown-linux-gnu /tmp/SHA256SUMS
+aegis --protocol-version
+```
+
+Developer-only source build (not what the plugin verifies):
+
+```bash
+cargo install --locked --path tools/cli
 # or
-cargo run -p aegis-cli -- status
+cargo run -p aegis-cli --locked -- status
 ```
 
 ## Process model

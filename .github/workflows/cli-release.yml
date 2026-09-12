@@ -1,0 +1,92 @@
+# Attested linux-x86_64 `aegis` CLI. Builds --locked with the pinned
+# rust-toolchain.toml, publishes SHA-256 sums, and writes GitHub
+# artifact provenance. This is the binary omarchy-aegis verifies.
+name: Attested CLI
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build
+        required: true
+        default: v2.0.0-rc.1.1
+      release_tag:
+        description: Release tag to attach assets to (empty skips upload)
+        required: false
+        default: v2.0.0-rc.1.1
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: attested-cli-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+  RUSTFLAGS: "-C debuginfo=0"
+
+jobs:
+  linux-x86_64:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
+
+      - name: Pin toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98.1"
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build locked release CLI
+        run: |
+          set -euo pipefail
+          cargo build --locked --release -p aegis-cli
+          test -x target/release/aegis
+          mkdir -p dist
+          install -m 0755 target/release/aegis dist/aegis-x86_64-unknown-linux-gnu
+          strip --strip-unneeded dist/aegis-x86_64-unknown-linux-gnu
+          (cd dist && sha256sum aegis-x86_64-unknown-linux-gnu > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - name: Attest provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/aegis-x86_64-unknown-linux-gnu
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-x86_64-unknown-linux-gnu
+          path: |
+            dist/aegis-x86_64-unknown-linux-gnu
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Attach to GitHub release
+        if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "release" ]; then
+            tag="${{ github.event.release.tag_name }}"
+          else
+            tag="${{ inputs.release_tag }}"
+          fi
+          gh release upload "$tag" \
+            dist/aegis-x86_64-unknown-linux-gnu \
+            dist/SHA256SUMS \
+            --clobber
