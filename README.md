@@ -90,6 +90,7 @@ cargo test --workspace
 | [docs/DEV.md](docs/DEV.md) | Local development |
 | [docs/CLI.md](docs/CLI.md) | Native `aegis` CLI (unix agent, JSON/CBOR RPC) |
 | [docs/RC-TEST-CHECKLIST.md](docs/RC-TEST-CHECKLIST.md) | Human soak for `v2.0.0-rc.1` (not a security claim) |
+| [`website` branch](../../tree/website) | Commercial website: Astro site and design plan (kept separate from product code) |
 
 ## Layout
 
