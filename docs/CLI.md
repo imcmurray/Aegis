@@ -11,12 +11,14 @@ provenance attested). omarchy-aegis refuses any other binary.
 ```bash
 tag=v2.0.0-rc.1.1
 base=https://github.com/imcmurray/Aegis/releases/download/$tag
-curl -fsSL -o /tmp/SHA256SUMS "$base/SHA256SUMS"
-curl -fsSL -o /tmp/aegis-x86_64-unknown-linux-gnu "$base/aegis-x86_64-unknown-linux-gnu"
-(cd /tmp && sha256sum -c SHA256SUMS --ignore-missing)
-install -D -m 0755 /tmp/aegis-x86_64-unknown-linux-gnu ~/.local/bin/aegis
-rm -f /tmp/aegis-x86_64-unknown-linux-gnu /tmp/SHA256SUMS
-aegis --protocol-version
+dir="${XDG_RUNTIME_DIR:?}/aegis-cli-$$"
+mkdir -p "$dir"
+curl -fsSL -o "$dir/SHA256SUMS" "$base/SHA256SUMS"
+curl -fsSL -o "$dir/aegis-x86_64-unknown-linux-gnu" "$base/aegis-x86_64-unknown-linux-gnu"
+(cd "$dir" && sha256sum -c SHA256SUMS --ignore-missing)
+install -D -m 0755 "$dir/aegis-x86_64-unknown-linux-gnu" ~/.local/bin/aegis
+rm -rf "$dir"
+~/.local/bin/aegis --protocol-version
 ```
 
 Developer-only source build (not what the plugin verifies):
