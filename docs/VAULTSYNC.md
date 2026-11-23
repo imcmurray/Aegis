@@ -31,12 +31,16 @@ Master passphrase → WrapKek → RootSecret (memory-only)
 
 ## Using two computers
 
-1. Both: Freenet peer + Aegis `?mode=freenet&register=1` once.
-2. Both: same master passphrase (same identity keys).
-3. Device A: edit → **Sync**.
-4. Device B: unlock → **Sync** → pull/merge.
+The sync identity comes from the vault's random RootSecret, not from the passphrase. A vault created on device B with the same passphrase has a different RootSecret, so it would sync to a different contract. Device B needs device A's RootSecret, and today the only way to carry it is a Recovery Kit plus a backup:
 
-Until mesh works on your peer version, keep **Export/Import** as backup.
+1. Both: a Freenet peer, and Aegis opened once with `?register=1` to install the delegate.
+2. Device A (unlocked): Settings → **Recovery Kit** → generate it, keeping the `.aegis-recovery` file and the `AEGIS2-…` secret. Then **Export** a normal `.aegis` backup.
+3. Device B (empty delegate, "Create vault" screen): use **Disaster recovery (same identity)** with the kit, its secret, the backup and its password, plus a live passphrase for B. B keeps the vault ID and sync owner key and gets its own device ID.
+4. Device A: edit → **Sync**. Device B: unlock → **Sync** → pull/merge. Both use the same sync contract.
+
+Kit + secret = control of the vault identity. Move them out of band and store them apart. A dedicated "link a device" flow is future work.
+
+A plain `.aegis` Export/Import moves the entries but mints a **new** identity, so the two copies would not sync with each other.
 
 ## Browser mode
 
