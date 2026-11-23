@@ -6,6 +6,8 @@
  *   mock    — UI-only (legacy; weak crypto)
  */
 
+import { BRIDGE_BLOCKED_DETAIL, freenetBridgeBlocked, inFreenetWebContainer } from "./freenetBridge";
+import type { VaultResponse } from "./messages";
 import { BrowserVaultClient } from "./browserClient";
 import { DevVaultClient } from "./devClient";
 import {
@@ -22,6 +24,20 @@ class LabeledMock extends MockVaultClient implements VaultClient {
 
 export type { VaultClient, ClientMode };
 export { resolveMode } from "./freenet";
+
+/** Inside a Freenet web container when the node's Aegis delegate cannot be reached. */
+class UnreachableFreenetClient implements VaultClient {
+  readonly label = "freenet (unreachable)";
+  request(): Promise<VaultResponse> {
+    return Promise.resolve({
+      type: "error",
+      code: "internal",
+      message: freenetBridgeBlocked()
+        ? BRIDGE_BLOCKED_DETAIL
+        : "Can't reach the Aegis delegate on this Freenet node. Check that the node is running, then reload this page.",
+    } as VaultResponse);
+  }
+}
 
 export async function createVaultClient(): Promise<VaultClient> {
   const mode = resolveMode();
@@ -40,6 +56,13 @@ export async function createVaultClient(): Promise<VaultClient> {
   if (mode === "freenet") {
     const freenet = await tryCreateFreenetClient();
     if (freenet) return freenet;
+    if (inFreenetWebContainer()) {
+      // Never fall back to the in-page browser vault inside a Freenet web
+      // container: the sandbox has no storage, so a vault created there would
+      // silently vanish on reload, and Sync would be "local only".
+      console.error("[aegis] Freenet delegate unreachable inside the Freenet web container; not falling back.");
+      return new UnreachableFreenetClient();
+    }
     console.warn(
       "[aegis] Freenet peer unavailable — falling back to browser vault. " +
         "Start `freenet local` and reload with ?mode=freenet&register=1 to use Freenet.",
