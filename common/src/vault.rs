@@ -215,6 +215,10 @@ pub const SECRET_KEYS_V2: &[&[u8]] = &[
     crate::sync_v2::SECRET_SYNC_TRANSITION_V2,
 ];
 
+/// v2 device-local keys (D22). Never exported, linked, or synced; tracked by
+/// `GenerationStore` so generation commits carry them forward and GC old copies.
+pub const LOCAL_ONLY_KEYS_V2: &[&[u8]] = &[crate::remote_changes::SECRET_REMOTE_CHANGES_V2];
+
 /// Abstract secret storage so logic can run in unit tests without Freenet.
 pub trait SecretStore {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>>;
@@ -573,7 +577,17 @@ impl VaultSession {
                     .ok_or_else(|| VaultError::Msg("entry not found".into()))?;
                 self.audit_push(AuditKind::View, Some(id), "view entry");
                 self.persist_audit(store)?;
-                Ok(VaultResponse::Entry { entry })
+                Ok(VaultResponse::Entry {
+                    entry,
+                    remote_change: None,
+                })
+            }
+            // v1 sessions never record remote changes (D22).
+            VaultRequest::AckRemoteChange { .. } | VaultRequest::AckRemovedRemote {} => {
+                Ok(VaultResponse::Ok)
+            }
+            VaultRequest::ListRemovedRemote {} => {
+                Ok(VaultResponse::RemovedRemote { entries: vec![] })
             }
             VaultRequest::UpsertEntry { mut entry } => {
                 if entry.id.is_empty() {
@@ -931,6 +945,7 @@ impl VaultSession {
             contract_state,
             owner_verifying_key,
             sync_params,
+            remote_changed: 0,
         })
     }
 
@@ -1930,7 +1945,7 @@ mod tests {
             VaultRequest::GetEntry { id: "e1".into() },
         );
         match r {
-            VaultResponse::Entry { entry } => {
+            VaultResponse::Entry { entry, .. } => {
                 assert_eq!(entry.password, "second-password");
                 assert_eq!(entry.password_history.len(), 1);
                 assert_eq!(entry.password_history[0].password, "first-password");

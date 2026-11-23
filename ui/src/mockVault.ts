@@ -377,6 +377,12 @@ export class MockVaultClient {
             };
           }
         }
+        // Remote change log (D22): the mock never reports remote changes.
+        case "ack_remote_change":
+        case "ack_removed_remote":
+          return { type: "ok" };
+        case "list_removed_remote":
+          return { type: "removed_remote", entries: [] };
         case "list_folders": {
           if (!this.doc) return { type: "error", code: "locked", message: "locked" };
           const folders = Object.values(this.doc.folders).sort((a, b) =>

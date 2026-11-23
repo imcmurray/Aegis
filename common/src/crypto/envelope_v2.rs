@@ -4,11 +4,11 @@ use super::aead;
 use super::kdf::{derive_kek, Argon2ParamsV2, KdfContext};
 use super::passphrase::validate_v2_passphrase;
 use super::magic::{decode_vault_v2, encode_vault_v2, CONTAINER_VERSION_V2, MAGIC_VAULT_V2};
-use super::secret::{AuditDek, RecoveryKek, RootSecret, SyncDek, VaultDek};
+use super::secret::{AuditDek, RecoveryKek, RemoteChangesDek, RootSecret, SyncDek, VaultDek};
 use super::suite::{CryptoSuiteId, FORMAT_VERSION_V2, KEY_EPOCH_INITIAL};
 use super::transcript::{
     build_audit_blob_transcript, build_master_wrap_transcript, build_recovery_wrap_transcript,
-    build_sync_blob_transcript, build_vault_blob_transcript,
+    build_remote_changes_transcript, build_sync_blob_transcript, build_vault_blob_transcript,
 };
 use super::v1::CryptoError;
 use serde::{Deserialize, Serialize};
@@ -425,6 +425,95 @@ pub fn open_audit_v2(audit_dek: &AuditDek, blob: &AuditBlobV2) -> Result<Vec<u8>
     let vault_id = blob.vault_id_bytes()?;
     let aad = build_audit_blob_transcript(&vault_id, blob.key_epoch);
     aead::open(audit_dek.as_bytes(), &blob.nonce, &aad, &blob.ciphertext)
+}
+
+/// Device-local remote change log blob (D22). Same shape as [`AuditBlobV2`];
+/// own DEK and AAD kind (0x000D), so no other DEK can open it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteChangesBlobV2 {
+    pub format_version: u16,
+    pub crypto_suite: CryptoSuiteId,
+    #[serde(with = "serde_bytes")]
+    pub vault_id: Vec<u8>,
+    pub key_epoch: u32,
+    #[serde(with = "serde_bytes")]
+    pub nonce: Vec<u8>,
+    #[serde(with = "serde_bytes")]
+    pub ciphertext: Vec<u8>,
+}
+
+impl RemoteChangesBlobV2 {
+    pub fn to_cbor(&self) -> Result<Vec<u8>, CryptoError> {
+        let mut out = Vec::new();
+        ciborium::into_writer(self, &mut out).map_err(|e| CryptoError::Serde(e.to_string()))?;
+        Ok(out)
+    }
+
+    pub fn from_cbor(bytes: &[u8]) -> Result<Self, CryptoError> {
+        let blob: Self =
+            ciborium::from_reader(bytes).map_err(|e| CryptoError::Serde(e.to_string()))?;
+        blob.validate_header()?;
+        Ok(blob)
+    }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>, CryptoError> {
+        Ok(encode_vault_v2(&self.to_cbor()?))
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, CryptoError> {
+        reject_oversized(bytes)?;
+        Self::from_cbor(decode_vault_v2(bytes)?)
+    }
+
+    fn validate_header(&self) -> Result<(), CryptoError> {
+        if self.format_version != FORMAT_VERSION_V2 {
+            return Err(CryptoError::UnsupportedVersion(self.format_version));
+        }
+        self.crypto_suite.require_v2_core()?;
+        if self.vault_id.len() != 16 || self.nonce.len() != aead::NONCE_LEN {
+            return Err(CryptoError::InvalidEnvelope);
+        }
+        if self.ciphertext.len() > MAX_BLOB_CIPHERTEXT {
+            return Err(CryptoError::ResourceLimit);
+        }
+        Ok(())
+    }
+
+    fn vault_id_bytes(&self) -> Result<[u8; 16], CryptoError> {
+        self.vault_id
+            .as_slice()
+            .try_into()
+            .map_err(|_| CryptoError::InvalidEnvelope)
+    }
+}
+
+pub fn seal_remote_changes_v2(
+    dek: &RemoteChangesDek,
+    vault_id: [u8; 16],
+    key_epoch: u32,
+    plaintext: &[u8],
+) -> Result<RemoteChangesBlobV2, CryptoError> {
+    let aad = build_remote_changes_transcript(&vault_id, key_epoch);
+    let (nonce, ciphertext) = framed_blob(dek.as_bytes(), &aad, plaintext)?;
+    Ok(RemoteChangesBlobV2 {
+        format_version: FORMAT_VERSION_V2,
+        crypto_suite: CryptoSuiteId::AegisV2Core2026,
+        vault_id: vault_id.to_vec(),
+        key_epoch,
+        nonce,
+        ciphertext,
+    })
+}
+
+pub fn open_remote_changes_v2(
+    dek: &RemoteChangesDek,
+    blob: &RemoteChangesBlobV2,
+) -> Result<Vec<u8>, CryptoError> {
+    blob.validate_header()?;
+    let vault_id = blob.vault_id_bytes()?;
+    let aad = build_remote_changes_transcript(&vault_id, blob.key_epoch);
+    aead::open(dek.as_bytes(), &blob.nonce, &aad, &blob.ciphertext)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -27,6 +27,13 @@ import {
 } from "./cbor.ts";
 import type { LinkDropState, UpgradeSnapshotV1, VaultRequest, VaultResponse } from "./messages.ts";
 import {
+  describeFieldChange,
+  formatRelativeTime,
+  remoteChangePillLabel,
+  removedNoticeText,
+  syncChangedSuffix,
+} from "./remoteChanges.ts";
+import {
   bs58Decode,
   delegateInstanceKey,
   historyEntryTarget,
@@ -451,6 +458,163 @@ function toBytes(x: Uint8Array | number[]): Uint8Array {
   assert(
     supportsExportForUpgrade({ ...good, capabilities: ["session_token", "export_for_upgrade"] }),
     "export capability",
+  );
+}
+
+// Remote change log (D22): CBOR round-trips
+{
+  for (const req of [
+    { op: "ack_remote_change", id: "e1" },
+    { op: "list_removed_remote" },
+    { op: "ack_removed_remote" },
+  ] as VaultRequest[]) {
+    const back = decodeRequest(encodeRequest(req));
+    assert(JSON.stringify(back) === JSON.stringify(req), `roundtrip ${req.op}`);
+  }
+
+  const removed: VaultResponse = {
+    type: "removed_remote",
+    entries: [
+      { entry_id: "e1", kind: "deleted", changed_at: 10, recorded_at: 11, entry_name: "GitHub" },
+    ],
+  };
+  const removedBack = decodeResponse(encodeResponse(removed));
+  assert(JSON.stringify(removedBack) === JSON.stringify(removed), "removed_remote roundtrip");
+
+  const summaries = decodeResponse(
+    encodeResponse({
+      type: "summaries",
+      entries: [
+        {
+          id: "e1",
+          folder_id: null,
+          name: "GitHub",
+          urls: [],
+          username: "",
+          tags: [],
+          updated_at: 1,
+          remote_change: { kind: "modified", changed_at: 5 },
+        },
+      ],
+    }),
+  );
+  assert(
+    summaries.type === "summaries" &&
+      summaries.entries[0].remote_change?.kind === "modified" &&
+      summaries.entries[0].remote_change?.changed_at === 5,
+    "summaries remote_change survives",
+  );
+
+  const entryResp = decodeResponse(
+    encodeResponse({
+      type: "entry",
+      entry: {
+        id: "e1",
+        folder_id: null,
+        name: "GitHub",
+        urls: [],
+        username: "",
+        password: "",
+        notes: "",
+        custom_fields: [],
+        tags: [],
+        created_at: 1,
+        updated_at: 1,
+      },
+      remote_change: {
+        entry_id: "e1",
+        kind: "modified",
+        changed_at: 5,
+        recorded_at: 6,
+        fields: [
+          { field: "urls", old: ["a"], new: ["b", "c"] },
+          { field: "password" },
+          { field: "username", old: "alice", new: "alice2" },
+        ],
+      },
+    }),
+  );
+  assert(entryResp.type === "entry", "entry type");
+  if (entryResp.type === "entry") {
+    const f = entryResp.remote_change?.fields ?? [];
+    assert(f.length === 3, "entry remote_change fields");
+    assert(Array.isArray(f[0].new) && f[0].new.length === 2, "list values survive");
+    assert(f[1].old === undefined && f[1].new === undefined, "valueless field stays valueless");
+    assert(f[2].old === "alice" && f[2].new === "alice2", "text values survive");
+  }
+
+  const plainEntry = decodeResponse(
+    encodeResponse({
+      type: "entry",
+      entry: {
+        id: "e2",
+        folder_id: null,
+        name: "Plain",
+        urls: [],
+        username: "",
+        password: "",
+        notes: "",
+        custom_fields: [],
+        tags: [],
+        created_at: 1,
+        updated_at: 1,
+      },
+    }),
+  );
+  assert(plainEntry.type === "entry" && plainEntry.remote_change === undefined, "no remote_change");
+
+  const synced = decodeResponse(
+    encodeResponse({
+      type: "synced",
+      action: "pulled",
+      remote_revisions: 1,
+      detail: "",
+      remote_changed: 2,
+    }),
+  );
+  assert(synced.type === "synced" && synced.remote_changed === 2, "synced remote_changed");
+}
+
+// Remote change log (D22): pure helpers
+{
+  assert(
+    describeFieldChange({ field: "username", old: "alice", new: "alice2" }) ===
+      "Username: alice → alice2",
+    "describe username",
+  );
+  assert(
+    describeFieldChange({
+      field: "urls",
+      old: ["https://old.example.com"],
+      new: ["https://example.com"],
+    }) === "URLs: added https://example.com, removed https://old.example.com",
+    "describe urls",
+  );
+  assert(
+    describeFieldChange({ field: "password" }) ===
+      "Password changed (previous password is in Password history)",
+    "describe password",
+  );
+  assert(describeFieldChange({ field: "notes" }) === "Notes changed", "describe notes");
+  assert(
+    removedNoticeText([
+      { entry_id: "1", kind: "deleted", changed_at: 1, entry_name: "GitHub" },
+      { entry_id: "2", kind: "deleted", changed_at: 1, entry_name: "Bank" },
+    ]) === "Removed on another device: GitHub, Bank",
+    "removed notice",
+  );
+  assert(syncChangedSuffix(2) === " · 2 entries updated from another device", "suffix 2");
+  assert(syncChangedSuffix(1) === " · 1 entry updated from another device", "suffix 1");
+  assert(syncChangedSuffix(0) === "" && syncChangedSuffix(undefined) === "", "suffix 0");
+  assert(remoteChangePillLabel("added") === "New", "pill added");
+  assert(remoteChangePillLabel("modified") === "Updated", "pill modified");
+  assert(remoteChangePillLabel(undefined) === null, "pill none");
+  assert(formatRelativeTime(1000, 1010) === "just now", "relative just now");
+  assert(formatRelativeTime(1000, 1300) === "5 min ago", "relative minutes");
+  assert(formatRelativeTime(1000, 900) === "just now", "relative negative");
+  assert(
+    describeFieldChange({ field: "custom:f1", label: "PIN" }) === "Hidden field “PIN” changed",
+    "hidden custom field",
   );
 }
 

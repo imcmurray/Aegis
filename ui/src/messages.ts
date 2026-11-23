@@ -46,6 +46,33 @@ export interface Entry {
   updated_at: number;
 }
 
+/** Remote change log (D22): device-local, never synced, never contains secret values. */
+export type RemoteChangeKind = "added" | "modified" | "deleted";
+
+export interface FieldChange {
+  /** "name"|"username"|"password"|"urls"|"notes"|"tags"|"folder"|"totp"|"custom:<field id>" */
+  field: string;
+  /** Custom fields only: display name. */
+  label?: string;
+  old?: string | string[];
+  new?: string | string[];
+}
+
+export interface RemoteChange {
+  entry_id: string;
+  kind: RemoteChangeKind;
+  changed_at: number;
+  recorded_at?: number;
+  /** Deleted records only. */
+  entry_name?: string;
+  fields?: FieldChange[];
+}
+
+export interface RemoteChangeSummary {
+  kind: RemoteChangeKind;
+  changed_at: number;
+}
+
 export interface EntrySummary {
   id: string;
   folder_id: string | null;
@@ -62,6 +89,8 @@ export interface EntrySummary {
   has_url?: boolean;
   custom_field_count?: number;
   has_history?: boolean;
+  /** Set when another device added/changed this entry and it has not been opened yet. */
+  remote_change?: RemoteChangeSummary;
 }
 
 export type VaultRequest =
@@ -152,7 +181,13 @@ export type VaultRequest =
       code: string;
       state: Uint8Array | number[];
       passphrase: string;
-    };
+    }
+  /** Remote change log (D22): the user has seen this entry's remote change. */
+  | { op: "ack_remote_change"; id: string }
+  /** Remote change log (D22): entries another device removed. */
+  | { op: "list_removed_remote" }
+  /** Remote change log (D22): dismiss the removed-entries notice. */
+  | { op: "ack_removed_remote" };
 
 /** Decoded link-drop contract state (see common/src/link.rs). */
 export interface LinkDropState {
@@ -220,7 +255,8 @@ export type VaultResponse =
   | { type: "unlocked"; vault_id: string }
   | { type: "locked" }
   | { type: "summaries"; entries: EntrySummary[] }
-  | { type: "entry"; entry: Entry }
+  | { type: "entry"; entry: Entry; remote_change?: RemoteChange }
+  | { type: "removed_remote"; entries: RemoteChange[] }
   | { type: "folders"; folders: Folder[] }
   | { type: "password"; password: string }
   | { type: "totp"; code: string; seconds_remaining: number; period: number }
@@ -258,6 +294,8 @@ export type VaultResponse =
       owner_verifying_key?: number[] | Uint8Array;
       /** CBOR VaultSyncParams (v1) or VaultSyncParamsV2 (app AEGIS_VAULT_SYNC_V2). */
       sync_params?: number[] | Uint8Array;
+      /** Entries this sync observed as changed by another device (D22). */
+      remote_changed?: number;
     }
   | { type: "health"; report: HealthReport }
   | { type: "recovery_key"; recovery_key: string; kit?: Uint8Array | number[] }

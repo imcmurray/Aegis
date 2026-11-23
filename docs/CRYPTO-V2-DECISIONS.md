@@ -43,6 +43,7 @@ One function per object kind (`build_master_wrap_transcript`, `build_vault_blob_
 | `0x0004` | SyncBlob | Phase 7 |
 | `0x0005` | ExportBlob | Phase 4 (backup payload AAD) |
 | `0x0006` | BackupWrap | Phase 4 (BackupKey wrap AAD) |
+| `0x000D` | RemoteChanges | D22 (device-local remote change log) |
 
 Never reuse an ID. Unknown IDs fail closed.
 
@@ -67,7 +68,10 @@ aegis/v2/sync-ed25519-seed
 aegis/v2/sync-mldsa-seed
 aegis/v2/share-x25519-seed
 aegis/v2/share-mlkem-seed
+aegis/v2/remote-changes-dek
 ```
+
+(`remote-changes-dek` was added by D22; it is derived on demand and is not part of `OperationalKeys`.)
 
 PQ seeds are derived in Phase 3 so rotation does not change this map later; they are unused until Phases 7–8.
 
@@ -456,6 +460,24 @@ Unlock of an existing envelope does not re-apply this policy.
 - **Never in a payload:** the root, any DEK, K_s, v1 keys, audit, sync state / accepted / counter. The Recovery Kit stays the disaster-recovery path.
 
 **Not changed.** Crypto suites, persisted record formats, the session token format, `IPC_VERSION`, `IpcRequest` / `IpcResponse`, `ErrorCode`, `contracts/vault-sync` and the CLI protocol. The delegate WASM hash changes.
+
+### D22 — Remote change log (device-local)
+
+**Problem.** After a Sync that pulls another device's edits, the user cannot tell which entries changed. The Freenet sandbox gives the UI no persistent storage, so the delegate has to remember.
+
+**Design.**
+
+- **Record.** `RemoteChangeLog { v: 1, records }` (CBOR). A record is `added`, `modified` or `deleted` for one entry id, with `changed_at`, `recorded_at` (when this device learned of it), and for modified records a list of changed fields. Field values are included only when non-secret: name, username, URLs, labels, folder name and non-Hidden custom fields. Password, notes, TOTP seed and Hidden custom fields are recorded as "changed" with no values; password history is never read.
+- **Key and object.** `RemoteChangesDek` = HKDF-SHA256(IKM = RootSecret, salt = vault_id, info = `aegis/v2/remote-changes-dek`). It is derived on demand, so `OperationalKeys` is unchanged. Sealed with XChaCha20-Poly1305; AAD is the D1 header with Core suite `0x0002` and kind `0x000D` (`RemoteChanges`). Wire form: `RemoteChangesBlobV2` with `encode_vault_v2` framing, stored at `aegis/v2/remote-changes`. No other DEK opens it and its DEK opens no other object.
+- **Local only.** The key is in neither `SECRET_KEYS_V2`, `VAULT_INSTANCE_KEYS` nor `LINK_RECORD_KEYS`, so upgrade snapshots (which reject it as an unknown key), link offers and backups never carry it. It is listed in `LOCAL_ONLY_KEYS_V2`, which `GenerationStore::tracked_keys` includes, so generation commits carry it forward and garbage-collect old copies.
+- **Recording.** `sync_now_with_publish` clones the document before `sync_vault_v2` and diffs it against the merged document afterwards. The pre-merge copy already holds every local edit, so any difference came from another device. The log, vault and audit are written by one `persist` commit. A record folds into an existing one: added + modified stays added; modified + modified keeps the first `old` and the latest `new` (a revert drops the field); added + deleted vanishes; modified + deleted becomes deleted.
+- **Clearing.** Local `UpsertEntry` / `DeleteEntry` drop the entry's record in the same commit. `AckRemoteChange`, `AckRemovedRemote` write only the log. `GetEntry` does not ack; the UI acks after showing the panel.
+- **Caps.** Records older than 30 days (counted from `recorded_at`) are pruned, then the oldest beyond 500. Pruning runs on load and before every seal.
+- **Failure mode.** Any problem loading the log (missing, garbage, wrong vault or epoch, AEAD failure, unknown `v`) gives an empty log; unlock never fails because of it.
+- **Rotation and new instances.** `rotate_keys` re-seals the log under the new epoch's DEK. Backup restore, recovery-with-backup and new-instance install delete the key, since they create a new vault instance.
+- **Wire.** `EntrySummary.remote_change`, `Entry.remote_change` and `Synced.remote_changed` are additive and skipped or defaulted when empty. New ops: `AckRemoteChange`, `ListRemovedRemote`, `AckRemovedRemote`. v1 sessions never record and answer the new ops with `Ok` / an empty list.
+
+**Not changed.** Crypto suites, persisted record formats, the session token format, `IPC_VERSION`, `contracts/**` and the CLI protocol. The delegate WASM hash changes.
 
 ### Phase 2 / PR D (2026-09-06) — Core suite + envelopes
 

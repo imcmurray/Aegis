@@ -306,7 +306,7 @@ fn print_text(resp: &VaultResponse) {
             seconds_remaining,
             period,
         } => println!("{code} ({seconds_remaining}s / {period}s)"),
-        VaultResponse::Entry { entry } => {
+        VaultResponse::Entry { entry, .. } => {
             println!("{}\t{}\t{}", entry.id, entry.name, entry.username);
         }
         VaultResponse::Export { blob } => println!("export {} bytes", blob.len()),
@@ -370,7 +370,7 @@ fn copy_cmd(
 ) -> Result<(), String> {
     let id = resolve_id(paths, id_or_query)?;
     let resp = dispatch_auto(paths, VaultRequest::GetEntry { id })?;
-    let VaultResponse::Entry { entry } = resp else {
+    let VaultResponse::Entry { entry, .. } = resp else {
         return emit(json, resp);
     };
     let secret = match field {
@@ -410,7 +410,7 @@ fn copy_cmd(
 fn totp_cmd(paths: &AegisPaths, json: bool, id_or_query: &str) -> Result<(), String> {
     let id = resolve_id(paths, id_or_query)?;
     let resp = dispatch_auto(paths, VaultRequest::GetEntry { id })?;
-    let VaultResponse::Entry { entry } = resp else {
+    let VaultResponse::Entry { entry, .. } = resp else {
         return emit(json, resp);
     };
     let secret = entry
@@ -438,7 +438,7 @@ fn get_cmd(paths: &AegisPaths, json: bool, id: &str, reveal: bool) -> Result<(),
         return emit(json, resp);
     }
     match resp {
-        VaultResponse::Entry { entry } => {
+        VaultResponse::Entry { entry, .. } => {
             let has_password = !entry.password.is_empty();
             println!(
                 "{}\t{}\t{}\thas_password={has_password}",

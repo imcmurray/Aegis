@@ -2,6 +2,7 @@
 
 use crate::crypto::{GeneratorPolicy, KdfProfile};
 use crate::health::HealthReport;
+use crate::remote_changes::RemoteChange;
 use crate::types::{AuditEvent, Entry, EntryId, EntrySummary, Folder, FolderId};
 use serde::{Deserialize, Serialize};
 
@@ -215,6 +216,14 @@ pub enum VaultRequest {
         state: Vec<u8>,
         passphrase: String,
     },
+    /// Remote change log (D22): the user has seen this entry's remote change.
+    AckRemoteChange {
+        id: EntryId,
+    },
+    /// Remote change log (D22): entries another device removed (not yet dismissed).
+    ListRemovedRemote {},
+    /// Remote change log (D22): dismiss the removed-entries notice.
+    AckRemovedRemote {},
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -241,6 +250,13 @@ pub enum VaultResponse {
     },
     Entry {
         entry: Entry,
+        /// Pending remote change for this entry (added/modified), if any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        remote_change: Option<RemoteChange>,
+    },
+    /// Entries removed on another device (D22), newest first.
+    RemovedRemote {
+        entries: Vec<RemoteChange>,
     },
     Folders {
         folders: Vec<Folder>,
@@ -300,6 +316,9 @@ pub enum VaultResponse {
         /// CBOR [`crate::sync_types::VaultSyncParams`] for contract instance address.
         #[serde(default, with = "serde_bytes")]
         sync_params: Vec<u8>,
+        /// Entries this sync observed as changed by another device (D22).
+        #[serde(default)]
+        remote_changed: u32,
     },
     Health {
         report: HealthReport,
@@ -494,6 +513,12 @@ mod tests {
             ),
             ("create_link_offer", VaultRequest::CreateLinkOffer {}),
             (
+                "ack_remote_change",
+                VaultRequest::AckRemoteChange { id: "e1".into() },
+            ),
+            ("list_removed_remote", VaultRequest::ListRemovedRemote {}),
+            ("ack_removed_remote", VaultRequest::AckRemovedRemote {}),
+            (
                 "sign_link_state",
                 VaultRequest::SignLinkState {
                     code: "AEGL-X".into(),
@@ -573,6 +598,42 @@ mod tests {
                 params: vec![1, 2],
                 state: vec![3, 4],
                 expires_at: 600,
+            },
+            VaultResponse::RemovedRemote { entries: vec![] },
+            VaultResponse::RemovedRemote {
+                entries: vec![RemoteChange {
+                    entry_id: "e1".into(),
+                    kind: crate::remote_changes::RemoteChangeKind::Deleted,
+                    changed_at: 5,
+                    recorded_at: 6,
+                    entry_name: Some("GitHub".into()),
+                    fields: vec![],
+                }],
+            },
+            VaultResponse::Entry {
+                entry: Entry::new("e1", "GitHub"),
+                remote_change: Some(RemoteChange {
+                    entry_id: "e1".into(),
+                    kind: crate::remote_changes::RemoteChangeKind::Modified,
+                    changed_at: 5,
+                    recorded_at: 6,
+                    entry_name: None,
+                    fields: vec![crate::remote_changes::FieldChange {
+                        field: "urls".into(),
+                        label: None,
+                        old: Some(crate::remote_changes::ChangeValue::List(vec!["a".into()])),
+                        new: Some(crate::remote_changes::ChangeValue::List(vec!["b".into()])),
+                    }],
+                }),
+            },
+            VaultResponse::Synced {
+                action: "pulled".into(),
+                remote_revisions: 1,
+                detail: String::new(),
+                contract_state: vec![],
+                owner_verifying_key: vec![],
+                sync_params: vec![],
+                remote_changed: 2,
             },
             VaultResponse::LinkState { state: vec![5, 6] },
             VaultResponse::LinkLocation { params: vec![7, 8] },

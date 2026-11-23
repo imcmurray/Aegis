@@ -61,6 +61,11 @@ pub fn build_audit_blob_transcript(vault_id: &[u8; 16], key_epoch: u32) -> Vec<u
     header(ObjectKind::AuditBlob, vault_id, key_epoch)
 }
 
+/// AAD for RemoteChangesBlobV2 (suite Core, kind 0x000D).
+pub fn build_remote_changes_transcript(vault_id: &[u8; 16], key_epoch: u32) -> Vec<u8> {
+    header(ObjectKind::RemoteChanges, vault_id, key_epoch)
+}
+
 /// AAD for SyncBlobV2 (inner ciphertext; suite Core, kind 0x0004).
 pub fn build_sync_blob_transcript(vault_id: &[u8; 16], key_epoch: u32) -> Vec<u8> {
     header(ObjectKind::SyncBlob, vault_id, key_epoch)
@@ -252,6 +257,10 @@ mod tests {
             &[0x03, 0x00]
         );
         assert_eq!(&build_sync_blob_transcript(&vid, 0)[9..11], &[0x04, 0x00]);
+        assert_eq!(
+            &build_remote_changes_transcript(&vid, 0)[9..11],
+            &[0x0D, 0x00]
+        );
         let rev = build_sync_signing_transcript(
             &vid,
             0x0102_0304,

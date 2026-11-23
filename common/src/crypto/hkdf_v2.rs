@@ -1,8 +1,8 @@
 //! v2 HKDF-SHA256 hierarchy (D3). Salt = 16-byte vault_id. Unique info labels.
 
 use super::secret::{
-    AuditDek, OperationalKeys, RecoveryKek, RecoverySecret, RootSecret, SearchHmacKey,
-    ShareMlkemSeed, ShareX25519Seed, SyncDek, SyncEd25519Seed, SyncMldsaSeed, VaultDek,
+    AuditDek, OperationalKeys, RecoveryKek, RecoverySecret, RemoteChangesDek, RootSecret,
+    SearchHmacKey, ShareMlkemSeed, ShareX25519Seed, SyncDek, SyncEd25519Seed, SyncMldsaSeed, VaultDek,
     MLKEM_SEED_LEN,
 };
 use super::v1::CryptoError;
@@ -17,6 +17,8 @@ pub const LABEL_SYNC_ED25519_SEED: &[u8] = b"aegis/v2/sync-ed25519-seed";
 pub const LABEL_SYNC_MLDSA_SEED: &[u8] = b"aegis/v2/sync-mldsa-seed";
 pub const LABEL_SHARE_X25519_SEED: &[u8] = b"aegis/v2/share-x25519-seed";
 pub const LABEL_SHARE_MLKEM_SEED: &[u8] = b"aegis/v2/share-mlkem-seed";
+/// Device-local remote change log DEK (D22).
+pub const LABEL_REMOTE_CHANGES_DEK: &[u8] = b"aegis/v2/remote-changes-dek";
 /// HKDF info for RecoveryKek. IKM is RecoverySecret, never RootSecret (§27).
 pub const LABEL_RECOVERY_KEK: &[u8] = b"aegis/v2/recovery-kek";
 /// Combiner info (D5). Not derived from RootSecret or RecoverySecret.
@@ -32,6 +34,7 @@ pub const ROOT_DERIVED_LABELS: &[&[u8]] = &[
     LABEL_SYNC_MLDSA_SEED,
     LABEL_SHARE_X25519_SEED,
     LABEL_SHARE_MLKEM_SEED,
+    LABEL_REMOTE_CHANGES_DEK,
 ];
 
 fn expand32(hk: &Hkdf<Sha256>, info: &[u8]) -> Result<[u8; 32], CryptoError> {
@@ -59,6 +62,18 @@ pub fn derive_operational_keys(
         share_x25519_seed: ShareX25519Seed::from_bytes(expand32(&hk, LABEL_SHARE_X25519_SEED)?),
         share_mlkem_seed: ShareMlkemSeed::from_bytes(mlkem),
     })
+}
+
+/// HKDF-SHA256(IKM = RootSecret, salt = vault_id, info = "aegis/v2/remote-changes-dek").
+pub fn derive_remote_changes_dek(
+    root: &RootSecret,
+    vault_id: &[u8; 16],
+) -> Result<RemoteChangesDek, CryptoError> {
+    let hk = Hkdf::<Sha256>::new(Some(vault_id.as_slice()), root.as_bytes());
+    Ok(RemoteChangesDek::from_bytes(expand32(
+        &hk,
+        LABEL_REMOTE_CHANGES_DEK,
+    )?))
 }
 
 /// HKDF-SHA256(IKM = RecoverySecret, salt = vault_id, info = "aegis/v2/recovery-kek").

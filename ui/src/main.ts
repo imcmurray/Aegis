@@ -17,8 +17,17 @@ import {
   type GeneratorPolicy,
   type HealthReport,
   type ImportEntryChange,
+  type RemoteChange,
   type VaultResponse,
 } from "./messages";
+import {
+  describeRemoteChange,
+  formatRelativeTime,
+  remoteChangePanelTitle,
+  remoteChangePillLabel,
+  removedNoticeText,
+  syncChangedSuffix,
+} from "./remoteChanges";
 import {
   meshCapabilities,
   probeFreenetPeer,
@@ -2176,6 +2185,7 @@ async function renderVault() {
       // Freenet mesh: Get remote VaultSync → merge → Put/Update (owner-key identity).
       if (client.freenetApi && c.canMeshSync) {
         const { freenetVaultSyncRoundTrip } = await import("./vaultSync");
+        let remoteChangedTotal = 0;
         const summary = await freenetVaultSyncRoundTrip(
           client.freenetApi,
           async (remoteState) => {
@@ -2184,6 +2194,7 @@ async function renderVault() {
               remote_state: remoteState,
             });
             if (r.type === "synced") {
+              remoteChangedTotal += r.remote_changed ?? 0;
               const blob = toBytes(r.contract_state);
               const vk = toBytes(r.owner_verifying_key);
               if (blob.length > 0) cacheContractState(blob, vk);
@@ -2191,8 +2202,9 @@ async function renderVault() {
             return r;
           },
         );
-        statusLine.textContent = `Sync: ${summary}`;
+        statusLine.textContent = `Sync: ${summary}${syncChangedSuffix(remoteChangedTotal)}`;
         await refreshList();
+        void refreshRemovedNotice();
         return;
       }
 
@@ -2206,8 +2218,9 @@ async function renderVault() {
         const extra = isBrowserMode()
           ? " · local only (mesh Sync needs Freenet peer — see Settings)"
           : "";
-        statusLine.textContent = `Sync: ${resp.action} — ${resp.detail} (${resp.remote_revisions} rev)${extra}`;
+        statusLine.textContent = `Sync: ${resp.action} — ${resp.detail} (${resp.remote_revisions} rev)${syncChangedSuffix(resp.remote_changed)}${extra}`;
         await refreshList();
+        void refreshRemovedNotice();
         return;
       }
       statusLine.textContent = "Sync finished.";
@@ -2459,7 +2472,25 @@ async function renderVault() {
     ].filter(Boolean);
 
     const body = el("div", { class: "entry-row-body" });
-    body.append(el("div", { class: "entry-name", text: e.name }));
+    const pillLabel = remoteChangePillLabel(e.remote_change?.kind);
+    if (e.remote_change && pillLabel) {
+      const nameRow = el("div", { class: "entry-name-row" });
+      nameRow.append(
+        el("div", { class: "entry-name", text: e.name }),
+        el("span", {
+          class: "remote-change-pill",
+          text: pillLabel,
+          "aria-label": "Changed on another device",
+          title: `Changed on another device · ${formatRelativeTime(
+            e.remote_change.changed_at,
+            Math.floor(Date.now() / 1000),
+          )}`,
+        }),
+      );
+      body.append(nameRow);
+    } else {
+      body.append(el("div", { class: "entry-name", text: e.name }));
+    }
     if (metaParts.length > 0) {
       body.append(el("div", { class: "entry-meta", text: metaParts.join(" · ") }));
     }
@@ -2871,10 +2902,58 @@ async function renderVault() {
         resp.type === "error" ? resp.message : "Could not load entry";
       return;
     }
-    renderEditor(resp.entry, false);
+    renderEditor(resp.entry, false, resp.remote_change);
+    if (resp.remote_change) void ackRemoteChange(summary.id);
   }
 
-  function renderEditor(entry: Entry, isNew: boolean) {
+  /** Mark an entry's remote change as seen; failures (old delegates) are ignored. */
+  async function ackRemoteChange(entryId: string) {
+    try {
+      const r = await client.request({ op: "ack_remote_change", id: entryId });
+      if (r.type !== "ok") return;
+      const cached = allSummaries.find((s) => s.id === entryId);
+      if (cached) delete cached.remote_change;
+      for (const row of treeRoot.querySelectorAll(".entry-row")) {
+        if (row.getAttribute("data-entry-id") === entryId) {
+          row.querySelector(".remote-change-pill")?.remove();
+        }
+      }
+    } catch {
+      /* older delegate/WASM without the op: leave the pill and panel as is */
+    }
+  }
+
+  /** Show (or clear) the notice naming entries another device removed. */
+  async function refreshRemovedNotice() {
+    treeCard.querySelector(".removed-notice")?.remove();
+    try {
+      const r = await client.request({ op: "list_removed_remote" });
+      if (r.type !== "removed_remote" || r.entries.length === 0) return;
+      const notice = el("div", { class: "removed-notice", role: "status" });
+      const dismiss = el("button", {
+        type: "button",
+        class: "btn-ghost btn-tiny",
+        text: "Dismiss",
+      }) as HTMLButtonElement;
+      dismiss.addEventListener("click", async () => {
+        notice.remove();
+        try {
+          await client.request({ op: "ack_removed_remote" });
+        } catch {
+          /* ignore: notice is already gone */
+        }
+      });
+      notice.append(
+        el("span", { class: "removed-notice-text", text: removedNoticeText(r.entries) }),
+        dismiss,
+      );
+      treeCard.insertBefore(notice, tagFilterRow);
+    } catch {
+      /* no notice */
+    }
+  }
+
+  function renderEditor(entry: Entry, isNew: boolean, remoteChange?: RemoteChange) {
     clearTotpTimer();
     detailBody.innerHTML = "";
     detailActions.replaceChildren();
@@ -3174,6 +3253,26 @@ async function renderVault() {
       await refreshList();
     });
 
+    if (remoteChange) {
+      const panel = el("div", {
+        class: "remote-change-panel",
+        role: "region",
+        "aria-label": "Changed on another device",
+      });
+      panel.append(
+        el("div", {
+          class: "remote-change-title",
+          text: remoteChangePanelTitle(remoteChange, Math.floor(Date.now() / 1000)),
+        }),
+      );
+      const lines = el("ul", { class: "remote-change-lines" });
+      for (const line of describeRemoteChange(remoteChange)) {
+        lines.append(el("li", { text: line }));
+      }
+      panel.append(lines);
+      detailBody.append(panel);
+    }
+
     detailBody.append(
       el("label", { text: "Name", for: "entry-name" }),
       name,
@@ -3221,6 +3320,7 @@ async function renderVault() {
   });
 
   await refreshList();
+  void refreshRemovedNotice();
 }
 
 function showHealthModal(

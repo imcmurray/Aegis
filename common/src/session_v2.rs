@@ -29,6 +29,9 @@ use crate::sync_v2::{
     VaultSyncParamsV2, SECRET_SYNC_ACCEPTED_V2, SECRET_SYNC_COUNTER_V2, SECRET_SYNC_STATE_V2,
     SECRET_SYNC_TRANSITION_V2,
 };
+use crate::remote_changes::{
+    load_log, seal_log, RemoteChangeLog, SECRET_REMOTE_CHANGES_V2,
+};
 use crate::vault::{
     SecretStore, StoreOp, VaultError, SECRET_ENVELOPE, SECRET_SESSION, SECRET_SYNC_COUNTER,
     SECRET_SYNC_STATE, VAULT_INSTANCE_KEYS,
@@ -48,6 +51,8 @@ pub struct VaultSessionV2 {
     key_epoch: u32,
     pub doc: VaultDocument,
     pub audit: Vec<AuditEvent>,
+    /// Device-local log of what other devices changed (D22). Never synced.
+    remote_changes: RemoteChangeLog,
 }
 
 impl VaultSessionV2 {
@@ -120,6 +125,7 @@ impl VaultSessionV2 {
         let doc: VaultDocument =
             ciborium::from_reader(pt.as_slice()).map_err(|e| VaultError::Serde(e.to_string()))?;
         let audit = load_audit_v2(store, &keys.audit_dek).unwrap_or_default();
+        let remote_changes = load_remote_changes(store, &root, vault_id, envelope.key_epoch);
         let mut session = Self {
             root,
             keys,
@@ -127,6 +133,7 @@ impl VaultSessionV2 {
             key_epoch: envelope.key_epoch,
             doc,
             audit,
+            remote_changes,
         };
         session.audit_push(AuditKind::Unlock, None, "unlocked");
         Ok(session)
@@ -160,6 +167,7 @@ impl VaultSessionV2 {
         let doc: VaultDocument =
             ciborium::from_reader(pt.as_slice()).map_err(|e| VaultError::Serde(e.to_string()))?;
         let audit = load_audit_v2(store, &keys.audit_dek).unwrap_or_default();
+        let remote_changes = load_remote_changes(store, &root, vault_id, key_epoch);
         Ok(Self {
             root,
             keys,
@@ -167,6 +175,7 @@ impl VaultSessionV2 {
             key_epoch,
             doc,
             audit,
+            remote_changes,
         })
     }
 
@@ -215,6 +224,7 @@ impl VaultSessionV2 {
         let doc: VaultDocument =
             ciborium::from_reader(pt.as_slice()).map_err(|e| VaultError::Serde(e.to_string()))?;
         let audit = load_audit_v2(store, &keys.audit_dek).unwrap_or_default();
+        let remote_changes = load_remote_changes(store, &root, vault_id, wrap.key_epoch);
         Ok(Self {
             root,
             keys,
@@ -222,6 +232,7 @@ impl VaultSessionV2 {
             key_epoch: wrap.key_epoch,
             doc,
             audit,
+            remote_changes,
         })
     }
 
@@ -419,6 +430,9 @@ impl VaultSessionV2 {
         if let Some(op) = rec_ops {
             ops.push(op);
         }
+        if let Some(op) = self.remote_changes_op(store, Some((&new_root, new_epoch)))? {
+            ops.push(op);
+        }
         if has_v2_sync {
             let old_signer = HybridSyncSigner::from_operational_keys(&self.keys);
             let new_signer = HybridSyncSigner::from_operational_keys(&new_keys);
@@ -486,6 +500,9 @@ impl VaultSessionV2 {
         buf.merge_remote_cbor(remote_state)
             .map_err(|e| VaultError::Msg(format!("sync remote merge: {e}")))?;
         let device_id = self.doc.meta.device_id.clone();
+        // Pre-merge snapshot: it already holds every local edit, so any difference
+        // after the sync comes from another device (D22).
+        let before = self.doc.clone();
         let mut counter = buf.counter.counter;
         let report = crate::sync_v2::sync_vault_v2(
             &self.keys,
@@ -503,6 +520,9 @@ impl VaultSessionV2 {
         };
         buf.commit(store)
             .map_err(|e| VaultError::Msg(format!("sync save: {e}")))?;
+        let remote_changed = self
+            .remote_changes
+            .record_merge(&before, &self.doc, unix_now());
         self.audit_push(
             crate::types::AuditKind::Sync,
             None,
@@ -530,6 +550,7 @@ impl VaultSessionV2 {
             contract_state,
             owner_verifying_key: identity.ed25519_vk,
             sync_params: params_cbor,
+            remote_changed,
         })
     }
 
@@ -546,11 +567,15 @@ impl VaultSessionV2 {
             self.key_epoch,
             &audit_pt,
         )?;
+        let mut ops = vec![
+            StoreOp::put(SECRET_VAULT_V2, blob.to_bytes()?),
+            StoreOp::put(SECRET_AUDIT_V2, audit_blob.to_bytes()?),
+        ];
+        if let Some(op) = self.remote_changes_op(store, None)? {
+            ops.push(op);
+        }
         store
-            .commit(&[
-                StoreOp::put(SECRET_VAULT_V2, blob.to_bytes()?),
-                StoreOp::put(SECRET_AUDIT_V2, audit_blob.to_bytes()?),
-            ])
+            .commit(&ops)
             .map_err(|e| VaultError::Msg(format!("atomic commit failed: {e}")))?;
         Ok(())
     }
@@ -592,6 +617,7 @@ impl VaultSessionV2 {
             key_epoch,
             doc,
             audit: Vec::new(),
+            remote_changes: RemoteChangeLog::new(),
         })
     }
 
@@ -671,6 +697,7 @@ impl VaultSessionV2 {
             }
         }
         ops.push(StoreOp::delete(SECRET_RECOVERY_V2));
+        ops.push(StoreOp::delete(SECRET_REMOTE_CHANGES_V2));
         for k in [
             SECRET_SYNC_STATE_V2,
             SECRET_SYNC_ACCEPTED_V2,
@@ -783,7 +810,58 @@ impl VaultSessionV2 {
             key_epoch,
             doc,
             audit,
+            remote_changes: RemoteChangeLog::new(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn remote_changes_for_test(&self) -> &RemoteChangeLog {
+        &self.remote_changes
+    }
+
+    /// Test-only: decrypt the stored log (empty when absent/unreadable).
+    #[cfg(test)]
+    pub(crate) fn remote_changes_plaintext_for_test(&self, store: &dyn SecretStore) -> Vec<u8> {
+        match crate::crypto::hkdf_v2::derive_remote_changes_dek(&self.root, &self.vault_id) {
+            Ok(dek) => crate::remote_changes::stored_plaintext_for_test(
+                store,
+                &dek,
+                self.vault_id,
+                self.key_epoch,
+            ),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// The store op that makes the on-disk log match memory: put when non-empty,
+    /// delete when empty and a stale key exists, nothing otherwise.
+    fn remote_changes_op(
+        &mut self,
+        store: &dyn SecretStore,
+        keys_root: Option<(&RootSecret, u32)>,
+    ) -> Result<Option<StoreOp>, VaultError> {
+        self.remote_changes.prune(unix_now());
+        if self.remote_changes.records.is_empty() {
+            return Ok(if store.has(SECRET_REMOTE_CHANGES_V2) {
+                Some(StoreOp::delete(SECRET_REMOTE_CHANGES_V2))
+            } else {
+                None
+            });
+        }
+        let (root, epoch) = keys_root.unwrap_or((&self.root, self.key_epoch));
+        let dek = crate::crypto::hkdf_v2::derive_remote_changes_dek(root, &self.vault_id)?;
+        let sealed = seal_log(&dek, self.vault_id, epoch, &self.remote_changes)?;
+        Ok(Some(StoreOp::put(SECRET_REMOTE_CHANGES_V2, sealed)))
+    }
+
+    /// Commit only the log op (acks). No write when nothing changed.
+    fn commit_remote_changes(&mut self, store: &mut dyn SecretStore) -> Result<(), VaultError> {
+        if let Some(op) = self.remote_changes_op(store, None)? {
+            store
+                .commit(&[op])
+                .map_err(|e| VaultError::Msg(format!("atomic commit failed: {e}")))?;
+        }
+        Ok(())
     }
 
     pub fn handle(
@@ -807,10 +885,29 @@ impl VaultSessionV2 {
                                 || e.tags.iter().any(|t| t.to_lowercase().contains(q))
                         }
                     })
-                    .map(EntrySummary::from)
+                    .map(|e| {
+                        let mut s = EntrySummary::from(e);
+                        s.remote_change = self.remote_changes.summary_for(&e.id);
+                        s
+                    })
                     .collect();
                 entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
                 Ok(VaultResponse::Summaries { entries })
+            }
+            VaultRequest::AckRemoteChange { id } => {
+                if self.remote_changes.ack_entry(&id) {
+                    self.commit_remote_changes(store)?;
+                }
+                Ok(VaultResponse::Ok)
+            }
+            VaultRequest::ListRemovedRemote {} => Ok(VaultResponse::RemovedRemote {
+                entries: self.remote_changes.removed(),
+            }),
+            VaultRequest::AckRemovedRemote {} => {
+                if self.remote_changes.ack_removed() {
+                    self.commit_remote_changes(store)?;
+                }
+                Ok(VaultResponse::Ok)
             }
             VaultRequest::GetEntry { id } => {
                 let entry = self
@@ -819,8 +916,12 @@ impl VaultSessionV2 {
                     .get(&id)
                     .cloned()
                     .ok_or_else(|| VaultError::Msg("entry not found".into()))?;
+                let remote_change = self.remote_changes.record_for(&id);
                 self.audit_push(AuditKind::View, Some(id), "view entry");
-                Ok(VaultResponse::Entry { entry })
+                Ok(VaultResponse::Entry {
+                    entry,
+                    remote_change,
+                })
             }
             VaultRequest::UpsertEntry { mut entry } => {
                 if entry.id.is_empty() {
@@ -853,6 +954,7 @@ impl VaultSessionV2 {
                     }
                 }
                 let id = entry.id.clone();
+                self.remote_changes.clear_entry(&id);
                 self.doc.entries.insert(id.clone(), entry);
                 self.doc.meta.updated_at = unix_now();
                 self.audit_push(
@@ -871,6 +973,7 @@ impl VaultSessionV2 {
                 if self.doc.entries.remove(&id).is_none() {
                     return Err(VaultError::Msg("entry not found".into()));
                 }
+                self.remote_changes.clear_entry(&id);
                 self.doc.deleted.insert(
                     id.clone(),
                     Tombstone {
@@ -1065,7 +1168,10 @@ impl VaultSessionV2 {
                     "opened hybrid share",
                 );
                 self.persist_audit(store)?;
-                Ok(VaultResponse::Entry { entry })
+                Ok(VaultResponse::Entry {
+                    entry,
+                    remote_change: None,
+                })
             }
             VaultRequest::SyncNow | VaultRequest::SyncWithRemote { .. } => {
                 Err(VaultError::Msg(
@@ -1306,6 +1412,7 @@ fn recover_empty_with_backup(
             StoreOp::put(SECRET_VAULT_V2, vault_blob.to_bytes()?),
             StoreOp::put(SECRET_AUDIT_V2, audit_blob.to_bytes()?),
             StoreOp::put(SECRET_RECOVERY_V2, wrap.to_cbor()?),
+            StoreOp::delete(SECRET_REMOTE_CHANGES_V2),
         ])
         .map_err(|e| VaultError::Msg(format!("atomic commit failed: {e}")))?;
     Ok(session)
@@ -1365,6 +1472,7 @@ pub fn install_new_v2_from_document(
         }
     }
     ops.push(StoreOp::delete(SECRET_RECOVERY_V2));
+    ops.push(StoreOp::delete(SECRET_REMOTE_CHANGES_V2));
     for k in [
         SECRET_SYNC_STATE_V2,
         SECRET_SYNC_ACCEPTED_V2,
@@ -1505,6 +1613,19 @@ fn empty_doc(vault_id: [u8; 16]) -> VaultDocument {
             device_id: new_id(),
         },
         ..Default::default()
+    }
+}
+
+/// Load the device-local remote change log. Never fails: any problem is an empty log.
+fn load_remote_changes(
+    store: &dyn SecretStore,
+    root: &RootSecret,
+    vault_id: [u8; 16],
+    key_epoch: u32,
+) -> RemoteChangeLog {
+    match crate::crypto::hkdf_v2::derive_remote_changes_dek(root, &vault_id) {
+        Ok(dek) => load_log(store, &dek, vault_id, key_epoch),
+        Err(_) => RemoteChangeLog::new(),
     }
 }
 

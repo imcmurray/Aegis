@@ -6,13 +6,16 @@
 
 use crate::delegate_session::SECRET_DELEGATE_SESSION_KEY;
 use crate::rng;
-use crate::vault::{apply_store_ops, SecretStore, StoreOp, SECRET_KEYS_V2, VAULT_INSTANCE_KEYS};
+use crate::vault::{
+    apply_store_ops, SecretStore, StoreOp, LOCAL_ONLY_KEYS_V2, SECRET_KEYS_V2, VAULT_INSTANCE_KEYS,
+};
 
 fn tracked_keys() -> impl Iterator<Item = &'static [u8]> {
     VAULT_INSTANCE_KEYS
         .iter()
         .copied()
         .chain(SECRET_KEYS_V2.iter().copied())
+        .chain(LOCAL_ONLY_KEYS_V2.iter().copied())
 }
 
 pub const ACTIVE_GEN_KEY: &[u8] = b"aegis/v1/active-gen";

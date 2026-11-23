@@ -45,7 +45,8 @@ secret32!(SyncMldsaSeed, "SyncMldsaSeed([REDACTED])");
 secret32!(ShareX25519Seed, "ShareX25519Seed([REDACTED])");
 secret32!(ShareContentKey, "ShareContentKey([REDACTED])");
 secret32!(HybridShareSecret, "HybridShareSecret([REDACTED])");
-secret32!(RecoveryKek, "RecoveryKek([REDACTED])");
+secret32!(RemoteChangesDek, "RemoteChangesDek([REDACTED])");
+secret32!(RecoveryKek,"RecoveryKek([REDACTED])");
 secret32!(WrapKek, "WrapKek([REDACTED])");
 secret32!(BackupWrapKek, "BackupWrapKek([REDACTED])");
 

@@ -50,6 +50,9 @@ pub fn op_name(req: &VaultRequest) -> &'static str {
         VaultRequest::SignLinkState { .. } => "sign_link_state",
         VaultRequest::LinkLocate { .. } => "link_locate",
         VaultRequest::AcceptLink { .. } => "accept_link",
+        VaultRequest::AckRemoteChange { .. } => "ack_remote_change",
+        VaultRequest::ListRemovedRemote {} => "list_removed_remote",
+        VaultRequest::AckRemovedRemote {} => "ack_removed_remote",
     }
 }
 

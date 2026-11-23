@@ -131,7 +131,7 @@ fn populate_vault(store: &mut MemoryStore, profile: KdfProfile) -> String {
         other => panic!("{other:?}"),
     };
     let mut stored = match dispatch(store, &mut session, VaultRequest::GetEntry { id }) {
-        VaultResponse::Entry { entry } => entry,
+        VaultResponse::Entry { entry, .. } => entry,
         other => panic!("{other:?}"),
     };
     stored.password = NEW_PASSWORD.into();

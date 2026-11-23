@@ -113,7 +113,7 @@ fn dispatch_export_create_open_share() {
         },
     );
     match opened {
-        VaultResponse::Entry { entry } => assert_eq!(entry.password, "share-secret"),
+        VaultResponse::Entry { entry, .. } => assert_eq!(entry.password, "share-secret"),
         other => panic!("{other:?}"),
     }
 }

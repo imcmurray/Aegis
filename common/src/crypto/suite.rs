@@ -37,6 +37,8 @@ pub const KIND_SHARE_ENVELOPE: u16 = 0x000A;
 pub const KIND_SHARE_PAYLOAD: u16 = 0x000B;
 /// Recovery Kit wrap of RootSecret under RecoveryKek (Phase 9). Core suite, not hybrid.
 pub const KIND_RECOVERY_WRAP: u16 = 0x000C;
+/// Device-local, never-synced remote change log (D22). Core suite.
+pub const KIND_REMOTE_CHANGES: u16 = 0x000D;
 
 /// Object kind bound into D1 AAD. Wire value is [`Self::to_u16`], not declaration order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +55,7 @@ pub enum ObjectKind {
     ShareEnvelope,
     SharePayload,
     RecoveryWrap,
+    RemoteChanges,
 }
 
 impl ObjectKind {
@@ -70,6 +73,7 @@ impl ObjectKind {
             Self::ShareEnvelope => KIND_SHARE_ENVELOPE,
             Self::SharePayload => KIND_SHARE_PAYLOAD,
             Self::RecoveryWrap => KIND_RECOVERY_WRAP,
+            Self::RemoteChanges => KIND_REMOTE_CHANGES,
         }
     }
 
@@ -87,6 +91,7 @@ impl ObjectKind {
             KIND_SHARE_ENVELOPE => Ok(Self::ShareEnvelope),
             KIND_SHARE_PAYLOAD => Ok(Self::SharePayload),
             KIND_RECOVERY_WRAP => Ok(Self::RecoveryWrap),
+            KIND_REMOTE_CHANGES => Ok(Self::RemoteChanges),
             other => Err(CryptoError::UnsupportedObjectKind(other)),
         }
     }
@@ -241,6 +246,12 @@ mod tests {
         assert_eq!(ObjectKind::ShareEnvelope.to_u16(), 0x000A);
         assert_eq!(ObjectKind::SharePayload.to_u16(), 0x000B);
         assert_eq!(ObjectKind::RecoveryWrap.to_u16(), 0x000C);
+        assert_eq!(KIND_REMOTE_CHANGES, 0x000D);
+        assert_eq!(ObjectKind::RemoteChanges.to_u16(), 0x000D);
+        assert_eq!(
+            ObjectKind::from_u16(0x000D).unwrap(),
+            ObjectKind::RemoteChanges
+        );
         // Declaration order is Master, Vault, Audit, Sync, Export. If to_u16 were
         // `self as u16` with default discriminants, MasterWrap would be 0, not 1.
         assert_ne!(ObjectKind::MasterWrap.to_u16(), 0);
@@ -249,8 +260,8 @@ mod tests {
             Err(CryptoError::UnsupportedObjectKind(0))
         ));
         assert!(matches!(
-            ObjectKind::from_u16(0x000D),
-            Err(CryptoError::UnsupportedObjectKind(0x000D))
+            ObjectKind::from_u16(0x000E),
+            Err(CryptoError::UnsupportedObjectKind(0x000E))
         ));
     }
 

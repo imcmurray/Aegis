@@ -10,6 +10,7 @@ pub mod link;
 pub mod messages;
 pub mod migrate;
 pub mod recovery_v2;
+pub mod remote_changes;
 pub mod rng;
 pub mod session_v2;
 pub mod share;
@@ -77,3 +78,7 @@ mod delegate_upgrade_tests;
 #[cfg(test)]
 #[path = "../tests/delegate_link.rs"]
 mod delegate_link_tests;
+
+#[cfg(test)]
+#[path = "../tests/remote_changes.rs"]
+mod remote_changes_tests;

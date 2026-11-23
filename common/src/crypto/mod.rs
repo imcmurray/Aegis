@@ -20,15 +20,15 @@ pub use backup::{
     authenticate_backup, create_backup, BackupEnvelopeV2, BackupPayloadV2, MAX_BACKUP_FILE,
 };
 pub use envelope_v2::{
-    open_audit_v2, open_sync_v2, open_vault_v2, peek_envelope_version, seal_audit_v2, seal_sync_v2,
-    seal_vault_v2, unwrap_root_under_recovery, unwrap_root_v2, wrap_existing_root_v2,
+    open_audit_v2, open_remote_changes_v2, open_sync_v2, open_vault_v2, peek_envelope_version,
+    seal_audit_v2, seal_remote_changes_v2, seal_sync_v2, seal_vault_v2, RemoteChangesBlobV2, unwrap_root_under_recovery, unwrap_root_v2, wrap_existing_root_v2,
     wrap_existing_root_v2_legacy_passphrase, wrap_root_under_recovery, wrap_root_v2,
     wrap_root_v2_with_params, AuditBlobV2, MasterEnvelopeV2, SyncBlobV2, VaultBlobV2,
     MAX_BLOB_CIPHERTEXT, MAX_VAULT_FILE,
 };
 pub use hkdf_v2::{
-    derive_operational_keys, derive_recovery_kek, LABEL_AUDIT_DEK, LABEL_RECOVERY_KEK,
-    LABEL_SEARCH_HMAC, LABEL_SHARE_HYBRID_KEK, LABEL_SHARE_MLKEM_SEED, LABEL_SHARE_X25519_SEED,
+    derive_operational_keys, derive_recovery_kek, derive_remote_changes_dek, LABEL_AUDIT_DEK,
+    LABEL_RECOVERY_KEK, LABEL_REMOTE_CHANGES_DEK, LABEL_SEARCH_HMAC, LABEL_SHARE_HYBRID_KEK, LABEL_SHARE_MLKEM_SEED, LABEL_SHARE_X25519_SEED,
     LABEL_SYNC_DEK, LABEL_SYNC_ED25519_SEED, LABEL_SYNC_MLDSA_SEED, LABEL_VAULT_DEK,
     ROOT_DERIVED_LABELS,
 };
@@ -38,7 +38,8 @@ pub use kdf::{
     MAX_ARGON2_PARALLELISM, MAX_ARGON2_WORK, V2_MIN_MEMORY_KIB,
 };
 pub use secret::{
-    AuditDek, BackupKey, BackupWrapKek, OperationalKeys, RecoveryKek, RecoverySecret, RootSecret,
+    AuditDek, BackupKey, BackupWrapKek, OperationalKeys, RecoveryKek, RecoverySecret,
+    RemoteChangesDek, RootSecret,
     SearchHmacKey, ShareContentKey, ShareMlkemSeed, ShareX25519Seed, HybridShareSecret, SyncDek,
     SyncEd25519Seed, SyncMldsaSeed, VaultDek, WrapKek,
 };
@@ -54,11 +55,11 @@ pub use magic::{
 pub use suite::{
     CryptoSuiteId, ObjectKind, FORMAT_VERSION_V2, KEY_EPOCH_INITIAL, KIND_AUDIT_BLOB,
     KIND_BACKUP_WRAP, KIND_EXPORT_BLOB, KIND_MASTER_WRAP, KIND_RECOVERY_WRAP, KIND_SHARE_ENVELOPE,
-    KIND_SHARE_IDENTITY, KIND_SHARE_PAYLOAD, KIND_SYNC_BLOB, KIND_SYNC_REVISION,
+    KIND_REMOTE_CHANGES, KIND_SHARE_IDENTITY, KIND_SHARE_PAYLOAD, KIND_SYNC_BLOB, KIND_SYNC_REVISION,
     KIND_SYNC_TRANSITION, KIND_VAULT_BLOB, SUITE_V2_CORE_2026, SUITE_V2_SHARE_HYBRID_2026,
     SUITE_V2_SYNC_HYBRID_2026,
 };
 pub use transcript::{
-    build_recovery_wrap_transcript, build_share_identity_transcript, build_share_payload_transcript,
+    build_recovery_wrap_transcript, build_remote_changes_transcript, build_share_identity_transcript, build_share_payload_transcript,
     build_share_transcript, build_sync_signing_transcript, build_sync_transition_transcript,
 };

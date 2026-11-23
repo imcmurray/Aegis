@@ -157,6 +157,10 @@ pub struct EntrySummary {
     /// Password history present.
     #[serde(default)]
     pub has_history: bool,
+    /// Set (added/modified) when another device changed this entry and the user
+    /// has not opened it yet. Device-local; never synced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_change: Option<crate::remote_changes::RemoteChangeSummary>,
 }
 
 impl From<&Entry> for EntrySummary {
@@ -180,6 +184,7 @@ impl From<&Entry> for EntrySummary {
             has_url: e.urls.iter().any(|u| !u.trim().is_empty()),
             custom_field_count: e.custom_fields.len() as u32,
             has_history: !e.password_history.is_empty(),
+            remote_change: None,
         }
     }
 }

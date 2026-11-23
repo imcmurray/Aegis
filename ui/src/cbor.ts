@@ -299,6 +299,12 @@ function requestToPlain(req: VaultRequest): Record<string, unknown> {
         state: toU8(req.state),
         passphrase: req.passphrase,
       };
+    case "ack_remote_change":
+      return { op: "ack_remote_change", id: req.id };
+    case "list_removed_remote":
+      return { op: "list_removed_remote" };
+    case "ack_removed_remote":
+      return { op: "ack_removed_remote" };
     default: {
       const _exhaustive: never = req;
       throw new Error(`unknown request: ${JSON.stringify(_exhaustive)}`);
@@ -487,6 +493,12 @@ function plainToRequest(obj: Record<string, unknown>): VaultRequest {
         state: new Uint8Array(bytesField(obj.state)),
         passphrase: String(obj.passphrase ?? ""),
       };
+    case "ack_remote_change":
+      return { op: "ack_remote_change", id: String(obj.id ?? "") };
+    case "list_removed_remote":
+      return { op: "list_removed_remote" };
+    case "ack_removed_remote":
+      return { op: "ack_removed_remote" };
     default:
       throw new Error(`unknown request op: ${op}`);
   }
@@ -513,7 +525,11 @@ function responseToPlain(resp: VaultResponse): Record<string, unknown> {
     case "summaries":
       return { type: "summaries", entries: resp.entries };
     case "entry":
-      return { type: "entry", entry: resp.entry };
+      return resp.remote_change
+        ? { type: "entry", entry: resp.entry, remote_change: resp.remote_change }
+        : { type: "entry", entry: resp.entry };
+    case "removed_remote":
+      return { type: "removed_remote", entries: resp.entries };
     case "password":
       return { type: "password", password: resp.password };
     case "totp":
@@ -545,6 +561,7 @@ function responseToPlain(resp: VaultResponse): Record<string, unknown> {
         contract_state: resp.contract_state ?? new Uint8Array(0),
         owner_verifying_key: resp.owner_verifying_key ?? new Uint8Array(0),
         sync_params: resp.sync_params ?? new Uint8Array(0),
+        remote_changed: resp.remote_changed ?? 0,
       };
     case "health":
       return { type: "health", report: resp.report };
@@ -666,7 +683,15 @@ function plainToResponse(obj: Record<string, unknown>): VaultResponse {
     case "summaries":
       return { type: "summaries", entries: (obj.entries as never) ?? [] };
     case "entry":
-      return { type: "entry", entry: obj.entry as never };
+      return obj.remote_change
+        ? {
+            type: "entry",
+            entry: obj.entry as never,
+            remote_change: obj.remote_change as never,
+          }
+        : { type: "entry", entry: obj.entry as never };
+    case "removed_remote":
+      return { type: "removed_remote", entries: (obj.entries as never) ?? [] };
     case "password":
       return { type: "password", password: String(obj.password) };
     case "totp":
@@ -710,6 +735,7 @@ function plainToResponse(obj: Record<string, unknown>): VaultResponse {
         contract_state: bytesField(obj.contract_state),
         owner_verifying_key: bytesField(obj.owner_verifying_key),
         sync_params: bytesField(obj.sync_params),
+        remote_changed: Number(obj.remote_changed ?? 0),
       };
     case "health":
       return { type: "health", report: obj.report as never };

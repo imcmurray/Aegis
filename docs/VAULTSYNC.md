@@ -54,6 +54,12 @@ Kit + secret = control of the vault identity. Move them out of band and store th
 
 A plain `.aegis` Export/Import moves the entries but mints a **new** identity, so the two copies would not sync with each other.
 
+### Seeing what changed on another device
+
+After a **Sync** that pulls edits from another device, the status line adds "· N entries updated from another device" and the entry list marks those entries with a **New** or **Updated** pill. Open an entry to see a "Changed on another device" panel listing what changed (for example `Username: alice → alice2`, `URLs: added …`, `Password changed`); the pill goes away once you have opened it. Passwords, notes, authenticator seeds and hidden custom fields are never shown, only that they changed. Entries another device deleted are named in a dismissible notice above the folder tree.
+
+The list of changes is kept by the delegate on this device only, encrypted, and is never synced or exported. Your own edits never create entries in it, and it keeps at most 500 records for 30 days. See `docs/CRYPTO-V2-DECISIONS.md` D22.
+
 ## Browser mode
 
 `?mode=browser` stays local (IndexedDB). Mesh Sync requires Freenet mode.
