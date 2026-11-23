@@ -100,8 +100,8 @@ echo "$WEB_OUT" | tail -20
 # Capture Freenet web URL for later (key toml only stores signing keys)
 WEB_URL=$(echo "$WEB_OUT" | grep -oE 'http://[^[:space:]]+/v1/contract/web/[^[:space:]]+' | head -1 || true)
 if [[ -n "$WEB_URL" ]]; then
-  # normalize trailing slash
-  WEB_URL="${WEB_URL%/}/"
+  # fdev prints a :7509 URL whatever port it used; point it at the node we published to.
+  WEB_URL="http://$ADDR:$PORT/v1/contract/web/$(echo "$WEB_URL" | sed -E 's#.*/v1/contract/web/([^/]+).*#\1#')/"
   echo "$WEB_URL" > "$RELEASE/website-url.txt"
   echo "    saved $RELEASE/website-url.txt"
 fi
