@@ -17,6 +17,7 @@ pub mod sync_types;
 pub mod sync_v2;
 pub mod totp;
 pub mod types;
+pub mod upgrade;
 pub mod vault;
 
 pub use crypto::{
@@ -67,3 +68,7 @@ mod phase10_tests;
 #[cfg(test)]
 #[path = "../tests/delegate_session.rs"]
 mod delegate_session_tests;
+
+#[cfg(test)]
+#[path = "../tests/delegate_upgrade.rs"]
+mod delegate_upgrade_tests;

@@ -755,7 +755,9 @@ impl VaultSession {
             | VaultRequest::ImportRecoveryKit { .. }
             | VaultRequest::PreviewImport { .. }
             | VaultRequest::MigrateVault { .. }
-            | VaultRequest::MigrateVaultWithRecovery { .. } => Err(VaultError::Msg(
+            | VaultRequest::MigrateVaultWithRecovery { .. }
+            | VaultRequest::ExportForUpgrade {}
+            | VaultRequest::ImportUpgradeSnapshot { .. } => Err(VaultError::Msg(
                 "request must be handled by dispatcher".into(),
             )),
             VaultRequest::RotateKeys { .. }
@@ -1696,6 +1698,14 @@ pub fn dispatch_with_sync(
         VaultRequest::SyncWithRemote { remote_state } => {
             // No external FileSyncTransport — contract path uses secret-store + remote merge.
             dispatch_sync(store, session, None, &remote_state)
+        }
+        // D20: upgrade ops are honoured only by the IPC envelope path in
+        // `delegate_session::process_message`. Everything else refuses.
+        VaultRequest::ExportForUpgrade {} => {
+            VaultResponse::err(ErrorCode::Locked, "vault is locked")
+        }
+        VaultRequest::ImportUpgradeSnapshot { .. } => {
+            VaultResponse::err(ErrorCode::InvalidRequest, "upgrade import not permitted")
         }
         other => {
             let Some(s) = session.as_mut() else {

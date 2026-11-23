@@ -230,6 +230,8 @@ async fn vault(State(state): State<Shared>, body: Bytes) -> Response {
         VaultRequest::ExportShareIdentity => "export_share_identity",
         VaultRequest::CreateShare { .. } => "create_share",
         VaultRequest::OpenShare { .. } => "open_share",
+        VaultRequest::ExportForUpgrade {} => "export_for_upgrade",
+        VaultRequest::ImportUpgradeSnapshot { .. } => "import_upgrade_snapshot",
     };
     tracing::info!(op, "vault request");
 

@@ -4,6 +4,10 @@
 
 Crypto suites, wire formats and the CLI protocol (`1`) are unchanged.
 
+### Added
+
+- Freenet delegate upgrade path (D20). A committed history manifest (`delegates/vault-delegate/history.json`) lists earlier vault delegates. When the current delegate has no vault, the UI finds one under an earlier delegate and offers "Upgrade your vault"; after the passphrase it moves the vault over. Delegates with the new `ExportForUpgrade` op keep the vault identity; older ones (such as the live `Br4Y…` build) move through an encrypted backup and the vault gets a new sync identity. Adds `ExportForUpgrade` / `ImportUpgradeSnapshot` (envelope-only). Crypto, persisted formats and the CLI protocol are unchanged; the delegate WASM hash changes.
+
 ### Fixed
 
 - The Freenet vault no longer re-locks after every request. The delegate now returns a session token sealed under a rotating key in its secret store; the UI holds it in tab memory and sends it back, so an unlocked v2 vault stays unlocked until Lock, 15 min idle, a 12 h cap or another tab unlocking (D19). This adds a new local-only UI↔delegate IPC envelope `{v, token, req|resp}`; crypto suites, persisted formats and the CLI protocol are unchanged. The delegate WASM hash changes.

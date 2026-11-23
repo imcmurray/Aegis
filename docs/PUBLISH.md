@@ -33,6 +33,10 @@ rustup target add wasm32-unknown-unknown
 cd ui && npm ci
 ```
 
+## Release step: record the outgoing delegate
+
+At every release, **before building the new delegate**, prepend the outgoing delegate (the one currently in `ui/public/aegis_vault_delegate.hash.json`) to `delegates/vault-delegate/history.json`: its `code_hash_b58`, its version and its capabilities (`session_token`, plus `export_for_upgrade` once it supports it). Newest first. Never reorder or prune the file: users may still hold a vault under any past delegate. `scripts/build-wasm.sh` copies it to `ui/public/aegis_vault_delegate.history.json`. See `docs/CRYPTO-V2-DECISIONS.md` D20.
+
 ## Build a release bundle
 
 ```bash

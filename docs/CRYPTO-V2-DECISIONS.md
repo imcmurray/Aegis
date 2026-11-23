@@ -424,6 +424,22 @@ Unlock of an existing envelope does not re-apply this policy.
 - Two tabs kick each other out.
 - The IPC envelope is local-only and is not a persisted or network format.
 
+### D20 — Delegate upgrade path (history manifest + ExportForUpgrade)
+
+**Problem.** Freenet keys a delegate's secret store by `blake3(code_hash || params)`. Every release that changes the vault-delegate WASM therefore starts with an empty store and the user's vault looks gone.
+
+**Design.**
+
+- `delegates/vault-delegate/history.json` is a committed, append-only manifest (newest first) of previously released delegates: `version`, `code_hash_b58`, `capabilities` (`session_token`, `export_for_upgrade`). It is copied to `ui/public/aegis_vault_delegate.history.json` by `scripts/build-wasm.sh` (a committed copy keeps the UI build working before the first build). At each release the outgoing delegate is **prepended** (see `docs/PUBLISH.md`); the file is never reordered or pruned.
+- When the current delegate reports `has_vault: false`, the UI derives each history entry's instance key (`blake3(code_hash || empty params)`) and sends `status` to it, newest first. The first one holding a vault is offered as an "Upgrade your vault" screen. The user enters their passphrase; nothing moves without it.
+- **Identity-preserving move** (old delegate has `export_for_upgrade`): unlock the old delegate, `ExportForUpgrade` returns an `UpgradeSnapshot` (CBOR `{v, vault_id, key_epoch, records}`) holding the raw `SECRET_KEYS_V2` records of the committed view (passphrase-wrapped envelope, DEK-sealed vault/audit/sync blobs, recovery wrap). `ImportUpgradeSnapshot` writes them into the new delegate in one `store.commit`; then the user unlocks the new delegate. vault_id, key_epoch and the sync identity are kept.
+- **Legacy move** (old delegate lacks the op, e.g. `Br4Y…`): unlock the old delegate, `ExportEncrypted` under a random one-time password held only in UI memory, `ImportEncrypted` into the new delegate with the user's passphrase as the new live passphrase. This creates a new vault identity, so the sync identity changes and other devices must be re-linked. The UI shows a dismissible banner.
+- **Guards.** Both ops are honoured only inside the IPC envelope. Export additionally needs a session resumed from a valid token and a `WebApp` origin; every refusal is `Locked` / "vault is locked". Import needs a `WebApp` origin and an empty store (`PersistedFormat::None`); otherwise `InvalidRequest` / "upgrade import not permitted". The snapshot is fully validated (size ≤ 8 MiB, strict CBOR, v == 1, only `SECRET_KEYS_V2` keys without duplicates, envelope and vault blob header-consistent) before any write. Import never calls `set`/`remove`, and never touches the old delegate.
+- **Never in a snapshot:** the root, any DEK, K_s, v1 keys, `aegis/v1/active-gen`, `aegis/gen/...` keys. Plain `dispatch` (browser, dev, CLI, bare payloads) always refuses both ops.
+- The old delegate's copy is kept; nothing is deleted automatically.
+
+**Not changed.** Crypto suites, persisted record formats, the session token format, `IPC_VERSION` and the CLI protocol.
+
 ### Phase 2 / PR D (2026-09-06) — Core suite + envelopes
 
 Landed in `common/src/crypto/`. **Not** wired into `VaultSession::create` or import (Phase 5).

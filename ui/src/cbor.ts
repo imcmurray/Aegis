@@ -7,6 +7,7 @@ import { Decoder, Encoder } from "cbor-x";
 import type {
   DelegateRequestEnvelope,
   DelegateResponseEnvelope,
+  UpgradeSnapshotV1,
   VaultRequest,
   VaultResponse,
 } from "./messages";
@@ -269,6 +270,16 @@ function requestToPlain(req: VaultRequest): Record<string, unknown> {
         envelope: req.envelope,
         expected_sender_identity: req.expected_sender_identity ?? new Uint8Array(0),
       };
+    case "export_for_upgrade":
+      return { op: "export_for_upgrade" };
+    case "import_upgrade_snapshot":
+      return {
+        op: "import_upgrade_snapshot",
+        snapshot:
+          req.snapshot instanceof Uint8Array
+            ? req.snapshot
+            : new Uint8Array(req.snapshot),
+      };
     default: {
       const _exhaustive: never = req;
       throw new Error(`unknown request: ${JSON.stringify(_exhaustive)}`);
@@ -432,6 +443,13 @@ function plainToRequest(obj: Record<string, unknown>): VaultRequest {
         envelope: bytesField(obj.envelope),
         expected_sender_identity: bytesField(obj.expected_sender_identity),
       };
+    case "export_for_upgrade":
+      return { op: "export_for_upgrade" };
+    case "import_upgrade_snapshot":
+      return {
+        op: "import_upgrade_snapshot",
+        snapshot: new Uint8Array(bytesField(obj.snapshot)),
+      };
     default:
       throw new Error(`unknown request op: ${op}`);
   }
@@ -525,6 +543,13 @@ function responseToPlain(resp: VaultResponse): Record<string, unknown> {
           ? resp.blob
           : new Uint8Array(resp.blob as number[]);
       return { type: "share_envelope", blob };
+    }
+    case "upgrade_snapshot": {
+      const snapshot =
+        resp.snapshot instanceof Uint8Array
+          ? resp.snapshot
+          : new Uint8Array(resp.snapshot as number[]);
+      return { type: "upgrade_snapshot", snapshot };
     }
     case "import_preview":
       return {
@@ -654,6 +679,11 @@ function plainToResponse(obj: Record<string, unknown>): VaultResponse {
       return { type: "share_identity", blob: bytesField(obj.blob) };
     case "share_envelope":
       return { type: "share_envelope", blob: bytesField(obj.blob) };
+    case "upgrade_snapshot":
+      return {
+        type: "upgrade_snapshot",
+        snapshot: new Uint8Array(bytesField(obj.snapshot)),
+      };
     case "import_preview":
       return {
         type: "import_preview",
@@ -677,6 +707,49 @@ function plainToResponse(obj: Record<string, unknown>): VaultResponse {
     default:
       throw new Error(`unknown response type: ${type}`);
   }
+}
+
+/** Encode a delegate upgrade snapshot (CBOR map: v, vault_id, key_epoch, records). */
+export function encodeUpgradeSnapshot(s: UpgradeSnapshotV1): Uint8Array {
+  return encodeEnvelope({
+    v: s.v,
+    vault_id: new Uint8Array(s.vault_id),
+    key_epoch: s.key_epoch,
+    records: s.records.map(([k, v]) => [new Uint8Array(k), new Uint8Array(v)]),
+  });
+}
+
+/** Decode and strictly validate a delegate upgrade snapshot. */
+export function decodeUpgradeSnapshot(bytes: Uint8Array): UpgradeSnapshotV1 {
+  const bad = () => new Error("invalid upgrade snapshot");
+  let obj: Record<string, unknown>;
+  try {
+    obj = decoder.decode(bytes) as Record<string, unknown>;
+  } catch {
+    throw bad();
+  }
+  if (!obj || typeof obj !== "object") throw bad();
+  if (obj.v !== 1) throw bad();
+  const vault_id = obj.vault_id;
+  if (!(vault_id instanceof Uint8Array) || vault_id.length !== 16) throw bad();
+  const key_epoch = obj.key_epoch;
+  if (typeof key_epoch !== "number" || !Number.isInteger(key_epoch) || key_epoch < 0) {
+    throw bad();
+  }
+  if (!Array.isArray(obj.records)) throw bad();
+  const records: [Uint8Array, Uint8Array][] = [];
+  for (const r of obj.records as unknown[]) {
+    if (
+      !Array.isArray(r) ||
+      r.length !== 2 ||
+      !(r[0] instanceof Uint8Array) ||
+      !(r[1] instanceof Uint8Array)
+    ) {
+      throw bad();
+    }
+    records.push([new Uint8Array(r[0]), new Uint8Array(r[1])]);
+  }
+  return { v: 1, vault_id: new Uint8Array(vault_id), key_epoch, records };
 }
 
 /** Decode hex string to bytes (for golden-vector tests). */
@@ -706,4 +779,6 @@ export const GOLDEN = {
   ENVELOPE_STATUS_REQ: "a361760165746f6b656ef663726571a1626f7066737461747573",
   // {v:1, token:null, resp:{type:"locked"}}
   ENVELOPE_LOCKED_RESP: "a361760165746f6b656ef66472657370a16474797065666c6f636b6564",
+  // {op:"export_for_upgrade"}
+  EXPORT_FOR_UPGRADE_REQ: "a1626f70726578706f72745f666f725f75706772616465",
 } as const;

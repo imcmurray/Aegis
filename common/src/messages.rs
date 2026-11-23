@@ -187,6 +187,14 @@ pub enum VaultRequest {
         #[serde(default, with = "serde_bytes")]
         expected_sender_identity: Vec<u8>,
     },
+    /// Delegate upgrade (D20): export the encrypted-at-rest vault records.
+    /// Honoured only inside the IPC envelope with a valid WebApp session token.
+    ExportForUpgrade {},
+    /// Delegate upgrade (D20): import a snapshot into an empty store.
+    ImportUpgradeSnapshot {
+        #[serde(with = "serde_bytes")]
+        snapshot: Vec<u8>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -303,6 +311,11 @@ pub enum VaultResponse {
     ShareEnvelope {
         #[serde(with = "serde_bytes")]
         blob: Vec<u8>,
+    },
+    /// Delegate upgrade snapshot (D20); already encrypted at rest.
+    UpgradeSnapshot {
+        #[serde(with = "serde_bytes")]
+        snapshot: Vec<u8>,
     },
     Error {
         code: ErrorCode,
@@ -425,6 +438,13 @@ mod tests {
             ),
             ("list_folders", VaultRequest::ListFolders),
             ("sync_now", VaultRequest::SyncNow),
+            ("export_for_upgrade", VaultRequest::ExportForUpgrade {}),
+            (
+                "import_upgrade_snapshot",
+                VaultRequest::ImportUpgradeSnapshot {
+                    snapshot: vec![1, 2, 3],
+                },
+            ),
             (
                 "generate_password",
                 VaultRequest::GeneratePassword {
@@ -475,12 +495,24 @@ mod tests {
             VaultResponse::Export {
                 blob: vec![0xde, 0xad, 0xbe, 0xef],
             },
+            VaultResponse::UpgradeSnapshot {
+                snapshot: vec![9, 8, 7],
+            },
         ];
         for resp in resp_cases {
             let bytes = resp.to_cbor().unwrap();
             let round = VaultResponse::from_cbor(&bytes).unwrap();
             assert_eq!(round, resp);
         }
+    }
+
+    #[test]
+    fn export_for_upgrade_golden() {
+        let bytes = VaultRequest::ExportForUpgrade {}.to_cbor().unwrap();
+        assert_eq!(
+            hex::encode(bytes),
+            "a1626f70726578706f72745f666f725f75706772616465"
+        );
     }
 
     #[test]

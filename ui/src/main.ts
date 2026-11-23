@@ -1,4 +1,4 @@
-import { createVaultClient, type VaultClient } from "./client";
+import { createVaultClient, type UpgradeSource, type VaultClient } from "./client";
 import {
   CLIPBOARD_CLEAR_SECONDS,
   defaultGeneratorPolicy,
@@ -40,6 +40,8 @@ let unlockedViaRecovery = false;
 let vaultFormat: string | null = null;
 let needsMigration = false;
 let migrationRecoverySecret: string | null = null;
+/** Set after a legacy delegate upgrade: the vault now has a new sync identity. */
+let upgradeIdentityNotice = false;
 
 async function refreshPeerProbe(force = false) {
   peerProbe = await probeFreenetPeer({ force });
@@ -454,7 +456,16 @@ async function render() {
   if (status.type !== "status") return;
 
   if (!status.has_vault) {
-    renderCreate();
+    let source: UpgradeSource | null = null;
+    if (client.findUpgradeSource) {
+      try {
+        source = await client.findUpgradeSource();
+      } catch {
+        source = null;
+      }
+    }
+    if (source) renderUpgrade(source);
+    else renderCreate();
     return;
   }
   if (!unlocked) {
@@ -471,6 +482,23 @@ async function render() {
   }
   if (migrationRecoverySecret) {
     app.append(renderMigrationRecoveryBanner());
+  }
+  if (upgradeIdentityNotice) {
+    const banner = el("div", { class: "banner banner-warn" });
+    banner.append(
+      el("div", {}, [
+        el("span", {
+          text: "Your vault was moved to this Aegis version, but it now has a new sync identity. Re-link your other devices to keep syncing.",
+        }),
+      ]),
+    );
+    const dismissNotice = el("button", { text: "Dismiss" }) as HTMLButtonElement;
+    dismissNotice.addEventListener("click", () => {
+      upgradeIdentityNotice = false;
+      banner.remove();
+    });
+    banner.append(el("div", { class: "banner-actions" }, [dismissNotice]));
+    app.append(banner);
   }
   if (unlockedViaRecovery) {
     const banner = el("div", { class: "banner banner-warn" });
@@ -522,6 +550,72 @@ function modeLinks(): HTMLElement {
   ]);
   details.append(row);
   return details;
+}
+
+function renderUpgrade(source: UpgradeSource) {
+  const card = el("div", { class: "card" });
+  card.append(el("h2", { text: "Upgrade your vault" }));
+  card.append(
+    el("p", {
+      class: "hint",
+      text: "Your vault was found under the previous Aegis version. Enter your passphrase to move it to this version.",
+    }),
+  );
+  if (!source.identityPreserving) {
+    card.append(
+      el("p", {
+        class: "hint",
+        text: "After the move, your other devices will need to be re-linked for Sync.",
+      }),
+    );
+  }
+
+  const pw = el("input", {
+    type: "password",
+    id: "upgrade-pw",
+    autocomplete: "current-password",
+    placeholder: "Master passphrase",
+  }) as HTMLInputElement;
+  const btn = el("button", { class: "primary", text: "Upgrade" }) as HTMLButtonElement;
+
+  const run = async () => {
+    if (btn.disabled) return;
+    setError(card, null);
+    if (!pw.value) {
+      setError(card, "Enter your passphrase.");
+      return;
+    }
+    btn.disabled = true;
+    const passphrase = takePassword(pw);
+    let result;
+    try {
+      result = await client.upgradeFrom!(source, passphrase);
+    } catch (e) {
+      result = {
+        ok: false as const,
+        message: e instanceof Error ? e.message : "Upgrade failed.",
+      };
+    }
+    if (!result.ok) {
+      btn.disabled = false;
+      setError(card, result.message);
+      return;
+    }
+    unlocked = true;
+    if (!result.identityPreserved) upgradeIdentityNotice = true;
+    await render();
+  };
+  btn.addEventListener("click", () => void run());
+  pw.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      void run();
+    }
+  });
+
+  card.append(el("label", { text: "Master passphrase", for: "upgrade-pw" }), pw);
+  card.append(btn);
+  app.append(card);
 }
 
 function renderCreate() {

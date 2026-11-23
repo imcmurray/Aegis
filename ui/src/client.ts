@@ -14,6 +14,8 @@ import {
   tryCreateFreenetClient,
   resolveMode,
   type ClientMode,
+  type UpgradeResult,
+  type UpgradeSource,
   type VaultClient,
 } from "./freenet";
 import { MockVaultClient } from "./mockVault";
@@ -22,7 +24,7 @@ class LabeledMock extends MockVaultClient implements VaultClient {
   readonly label = "mock vault";
 }
 
-export type { VaultClient, ClientMode };
+export type { VaultClient, ClientMode, UpgradeResult, UpgradeSource };
 export { resolveMode } from "./freenet";
 
 /** Inside a Freenet web container when the node's Aegis delegate cannot be reached. */

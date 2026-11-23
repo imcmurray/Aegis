@@ -117,6 +117,16 @@ The delegate runs fresh for every request, so it cannot remember an unlock. Inst
 
 Design and threat analysis: `docs/CRYPTO-V2-DECISIONS.md` D19.
 
+## Upgrading Aegis on Freenet
+
+Freenet stores a delegate's secrets under `blake3(code_hash || params)`, so a new delegate WASM starts with an empty store. Aegis keeps a manifest of earlier delegates in `delegates/vault-delegate/history.json` (staged as `aegis_vault_delegate.history.json`).
+
+1. Open the new Aegis. If the new delegate has no vault but an earlier one does, you see **Upgrade your vault**.
+2. Enter your master passphrase and press **Upgrade**.
+3. If the old delegate supports `ExportForUpgrade`, the vault moves with the same identity. Otherwise it moves through an encrypted backup with a random one-time password and gets a **new sync identity**; re-link your other devices afterwards.
+
+The old delegate's copy is left in place. If the upgrade fails, nothing in the old delegate changed and you can retry. Design: `docs/CRYPTO-V2-DECISIONS.md` D20.
+
 ## WASM import rule
 
 Contract and delegate WASM may import **only `freenet_*` host modules**. A real

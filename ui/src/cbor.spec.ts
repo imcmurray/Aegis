@@ -20,7 +20,17 @@ import {
   encodeResponse,
   hexToBytes,
   bytesToHex,
+  encodeUpgradeSnapshot,
+  decodeUpgradeSnapshot,
 } from "./cbor.ts";
+import type { UpgradeSnapshotV1 } from "./messages.ts";
+import {
+  bs58Decode,
+  delegateInstanceKey,
+  historyEntryTarget,
+  parseDelegateHistory,
+  supportsExportForUpgrade,
+} from "./delegateHistory.ts";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -197,6 +207,187 @@ function assert(cond: unknown, msg: string): asserts cond {
   }
   assert(threw, "v:2 envelope must throw");
 }
+
+// ---- D20: delegate upgrade path ------------------------------------------------
+
+function eqBytes(a: ArrayLike<number>, b: ArrayLike<number>): boolean {
+  return a.length === b.length && [...(a as number[])].every((x, i) => x === b[i]);
+}
+
+function toBytes(x: Uint8Array | number[]): Uint8Array {
+  return x instanceof Uint8Array ? x : new Uint8Array(x);
+}
+
+// AC16: request round trips + golden
+{
+  const g = decodeRequest(hexToBytes(GOLDEN.EXPORT_FOR_UPGRADE_REQ));
+  assert(g.op === "export_for_upgrade", "golden export_for_upgrade");
+  assert(
+    bytesToHex(encodeRequest({ op: "export_for_upgrade" })) === GOLDEN.EXPORT_FOR_UPGRADE_REQ ||
+      decodeRequest(encodeRequest({ op: "export_for_upgrade" })).op === "export_for_upgrade",
+    "export_for_upgrade round trip",
+  );
+  const snapshot = new Uint8Array([0, 1, 2, 250, 251, 255]);
+  const back = decodeRequest(encodeRequest({ op: "import_upgrade_snapshot", snapshot }));
+  assert(back.op === "import_upgrade_snapshot", "import op");
+  if (back.op === "import_upgrade_snapshot") {
+    assert(eqBytes(toBytes(back.snapshot), snapshot), "import snapshot bytes");
+  }
+  // Also inside an envelope.
+  const env = decodeEnvelopeRequest(
+    encodeEnvelopeRequest({ op: "import_upgrade_snapshot", snapshot }, null),
+  );
+  assert(env.req.op === "import_upgrade_snapshot", "envelope import op");
+}
+
+// AC17: response round trips
+{
+  const snapshot = new Uint8Array([9, 8, 7, 0, 255]);
+  const back = decodeResponse(encodeResponse({ type: "upgrade_snapshot", snapshot }));
+  assert(back.type === "upgrade_snapshot", "upgrade_snapshot type");
+  if (back.type === "upgrade_snapshot") {
+    assert(back.snapshot instanceof Uint8Array, "snapshot decoded as bytes");
+    assert(eqBytes(toBytes(back.snapshot), snapshot), "snapshot bytes");
+  }
+  const token = new Uint8Array(57).map((_, i) => i + 1);
+  const env = decodeEnvelopeResponse(
+    encodeEnvelopeResponse({ type: "upgrade_snapshot", snapshot }, token),
+  );
+  assert(env.resp.type === "upgrade_snapshot", "env upgrade_snapshot type");
+  if (env.resp.type === "upgrade_snapshot") {
+    assert(eqBytes(toBytes(env.resp.snapshot), snapshot), "env snapshot bytes");
+  }
+}
+
+// AC18: snapshot encode/decode
+{
+  const vault_id = new Uint8Array(16).map((_, i) => i + 1);
+  const snap: UpgradeSnapshotV1 = {
+    v: 1,
+    vault_id,
+    key_epoch: 3,
+    records: [
+      [new Uint8Array([1, 2]), new Uint8Array([3, 4, 5])],
+      [new Uint8Array([6]), new Uint8Array(0)],
+    ],
+  };
+  const back = decodeUpgradeSnapshot(encodeUpgradeSnapshot(snap));
+  assert(back.v === 1 && back.key_epoch === 3, "snapshot scalars");
+  assert(eqBytes(back.vault_id, vault_id), "snapshot vault_id");
+  assert(back.records.length === 2, "snapshot record count");
+  for (let i = 0; i < 2; i++) {
+    assert(eqBytes(back.records[i][0], snap.records[i][0]), `record ${i} key`);
+    assert(eqBytes(back.records[i][1], snap.records[i][1]), `record ${i} value`);
+  }
+  const throws = (f: () => unknown): boolean => {
+    try {
+      f();
+    } catch (e) {
+      return e instanceof Error && e.message === "invalid upgrade snapshot";
+    }
+    return false;
+  };
+  assert(
+    throws(() => decodeUpgradeSnapshot(encodeUpgradeSnapshot({ ...snap, v: 2 as unknown as 1 }))),
+    "v:2 must throw",
+  );
+  assert(
+    throws(() =>
+      decodeUpgradeSnapshot(encodeUpgradeSnapshot({ ...snap, vault_id: new Uint8Array(15) })),
+    ),
+    "15-byte vault_id must throw",
+  );
+}
+
+// AC19: instance key derivation matches the committed hash JSON
+{
+  const hash = bs58Decode("Br4YLkPvZRsPcfoLLLfgqbANQje11mCSB3ysN2QMLhb1");
+  assert(hash.length === 32, "Br4Y hash is 32 bytes");
+  const key = delegateInstanceKey(hash);
+  const t = historyEntryTarget({
+    version: "x",
+    code_hash_b58: "Br4YLkPvZRsPcfoLLLfgqbANQje11mCSB3ysN2QMLhb1",
+    capabilities: [],
+  });
+  assert(t !== null, "valid entry has a target");
+  assert(t !== null && t.keyB58 === "9qTgvneeRkNXXpkGebd7YFiTzgDy5ePpBheVpEGJhnVw", "keyB58");
+  assert(t !== null && eqBytes(t.keyBytes, key), "target keyBytes == delegateInstanceKey");
+  assert(t !== null && eqBytes(t.hashBytes, hash), "target hashBytes");
+  assert(
+    historyEntryTarget({ version: "x", code_hash_b58: "not*base58", capabilities: [] }) === null,
+    "invalid base58 -> null",
+  );
+  assert(
+    historyEntryTarget({ version: "x", code_hash_b58: "3yZe7d", capabilities: [] }) === null,
+    "short hash -> null",
+  );
+}
+
+// AC20 (pure part) + AC19/21 (committed files)
+{
+  const good = { version: "1", code_hash_b58: "abc", capabilities: ["session_token"] };
+  const good2 = { version: "2", code_hash_b58: "def", capabilities: [] };
+  assert(parseDelegateHistory(null).length === 0, "null -> []");
+  assert(parseDelegateHistory({}).length === 0, "object -> []");
+  assert(parseDelegateHistory("x").length === 0, "string -> []");
+  const parsed = parseDelegateHistory([
+    good,
+    { version: 1, code_hash_b58: "x", capabilities: [] },
+    null,
+    { version: "v", capabilities: [] },
+    { version: "v", code_hash_b58: "x", capabilities: "nope" },
+    good2,
+  ]);
+  assert(parsed.length === 2, `malformed dropped, got ${parsed.length}`);
+  assert(parsed[0].version === "1" && parsed[1].version === "2", "order kept");
+  assert(!supportsExportForUpgrade(good), "no export capability");
+  assert(
+    supportsExportForUpgrade({ ...good, capabilities: ["session_token", "export_for_upgrade"] }),
+    "export capability",
+  );
+}
+
+async function committedFiles(): Promise<void> {
+  const spec: string = "node:fs";
+  const fs = (await import(/* @vite-ignore */ spec)) as {
+    readFileSync(p: URL, enc: "utf8"): string;
+  };
+  const read = (rel: string): string => fs.readFileSync(new URL(rel, import.meta.url), "utf8");
+  const histRaw = read("../../delegates/vault-delegate/history.json");
+  const uiRaw = read("../public/aegis_vault_delegate.history.json");
+  assert(histRaw === uiRaw, "UI history copy is byte-identical");
+  const hist = parseDelegateHistory(JSON.parse(histRaw));
+  assert(hist.length === 1, "exactly one seed entry");
+  assert(hist[0].version === "2.0.0-rc.2+freenet-session", "seed version");
+  assert(
+    hist[0].code_hash_b58 === "Br4YLkPvZRsPcfoLLLfgqbANQje11mCSB3ysN2QMLhb1",
+    "seed hash",
+  );
+  assert(
+    hist[0].capabilities.length === 1 && hist[0].capabilities[0] === "session_token",
+    "seed capabilities",
+  );
+  assert(!supportsExportForUpgrade(hist[0]), "seed lacks export_for_upgrade");
+
+  const hashJson = JSON.parse(read("../public/aegis_vault_delegate.hash.json")) as {
+    instance_key_bytes: number[];
+    instance_key_b58: string;
+    code_hash_b58: string;
+  };
+  const key = delegateInstanceKey(bs58Decode(hashJson.code_hash_b58));
+  assert(eqBytes(key, hashJson.instance_key_bytes), "instance key matches hash.json");
+  assert(
+    delegateInstanceKey(bs58Decode("Br4YLkPvZRsPcfoLLLfgqbANQje11mCSB3ysN2QMLhb1")).length === 32,
+    "Br4Y instance key length",
+  );
+}
+
+committedFiles()
+  .then(() => console.log("cbor.spec.ts: delegate upgrade checks passed"))
+  .catch((e) => {
+    console.error(e);
+    (globalThis as unknown as { process: { exit(c: number): void } }).process.exit(1);
+  });
 
 // Log TS encodings so we can feed them through Rust if needed
 console.log("TS STATUS_REQ=", bytesToHex(encodeRequest({ op: "status" })));

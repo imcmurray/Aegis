@@ -11,8 +11,13 @@
 use crate::crypto::secret::RootSecret;
 use crate::messages::{ErrorCode, VaultRequest, VaultResponse};
 use crate::session_v2::VaultSessionV2;
+use crate::upgrade::{
+    export_upgrade_snapshot, import_upgrade_snapshot, ERR_COMMIT_PREFIX, ERR_INVALID,
+    ERR_TOO_LARGE,
+};
 use crate::vault::{
-    detect_persisted_format, dispatch, ActiveSession, PersistedFormat, SecretStore, SECRET_SESSION,
+    detect_persisted_format, dispatch, ActiveSession, PersistedFormat, SecretStore, VaultError,
+    SECRET_SESSION,
 };
 use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
@@ -290,6 +295,52 @@ fn cleanup_v1_session_key(store: &mut dyn SecretStore, session: &Option<ActiveSe
     }
 }
 
+/// D20 export: only with a session resumed from a token, for a WebApp origin.
+/// Every refusal looks the same.
+fn handle_export_for_upgrade(
+    store: &dyn SecretStore,
+    session: &Option<ActiveSession>,
+    resumed: bool,
+    origin: &SessionOrigin,
+) -> VaultResponse {
+    let refuse = || VaultResponse::err(ErrorCode::Locked, "vault is locked");
+    if !resumed || !matches!(origin, SessionOrigin::WebApp(_)) {
+        return refuse();
+    }
+    let Some(ActiveSession::V2(s)) = session else {
+        return refuse();
+    };
+    match export_upgrade_snapshot(store, s) {
+        Ok(snapshot) => VaultResponse::UpgradeSnapshot { snapshot },
+        Err(VaultError::Msg(m)) if m == ERR_TOO_LARGE => {
+            VaultResponse::err(ErrorCode::InvalidRequest, ERR_TOO_LARGE)
+        }
+        Err(_) => refuse(),
+    }
+}
+
+/// D20 import: only for a WebApp origin into a store with no vault at all.
+fn handle_import_upgrade_snapshot(
+    store: &mut dyn SecretStore,
+    origin: &SessionOrigin,
+    snapshot: &[u8],
+) -> VaultResponse {
+    let refuse = || VaultResponse::err(ErrorCode::InvalidRequest, "upgrade import not permitted");
+    if !matches!(origin, SessionOrigin::WebApp(_)) {
+        return refuse();
+    }
+    if !matches!(detect_persisted_format(&*store), Ok(PersistedFormat::None)) {
+        return refuse();
+    }
+    match import_upgrade_snapshot(store, snapshot) {
+        Ok(()) => VaultResponse::Ok,
+        Err(VaultError::Msg(m)) if m.starts_with(ERR_COMMIT_PREFIX) => {
+            VaultResponse::err(ErrorCode::Storage, m)
+        }
+        Err(_) => VaultResponse::err(ErrorCode::InvalidRequest, ERR_INVALID),
+    }
+}
+
 /// Entry point used by the delegate. Accepts either an IpcRequest envelope or
 /// a bare VaultRequest (legacy). Returns the CBOR bytes to send back.
 /// Err only when the payload is not decodable CBOR of either shape.
@@ -356,7 +407,15 @@ pub fn process_message(
             | VaultRequest::MigrateVaultWithRecovery { .. }
     );
 
-    let resp = dispatch(store, &mut session, req);
+    let resp = match req {
+        VaultRequest::ExportForUpgrade {} => {
+            handle_export_for_upgrade(&*store, &session, started_some, origin)
+        }
+        VaultRequest::ImportUpgradeSnapshot { snapshot } => {
+            handle_import_upgrade_snapshot(store, origin, &snapshot)
+        }
+        req => dispatch(store, &mut session, req),
+    };
     cleanup_v1_session_key(store, &session);
 
     let established = establishing

@@ -174,6 +174,16 @@ impl VaultSessionV2 {
         &self.root
     }
 
+    /// Test-only: vault, audit and sync DEK bytes (for leak checks).
+    #[cfg(test)]
+    pub(crate) fn operational_key_bytes_for_tests(&self) -> [&[u8]; 3] {
+        [
+            self.keys.vault_dek.as_bytes().as_slice(),
+            self.keys.audit_dek.as_bytes().as_slice(),
+            self.keys.sync_dek.as_bytes().as_slice(),
+        ]
+    }
+
     pub fn vault_id(&self) -> [u8; 16] {
         self.vault_id
     }

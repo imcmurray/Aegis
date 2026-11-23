@@ -50,8 +50,12 @@ cargo run -q -p aegis-wasm-hash -- \
   "$UI_PUBLIC/aegis_vault_sync.wasm" \
   > "$UI_PUBLIC/aegis_vault_sync.hash.json"
 
+# Delegate history manifest (D20): older delegates the UI may find a vault in.
+cp -f "$ROOT/delegates/vault-delegate/history.json" \
+  "$UI_PUBLIC/aegis_vault_delegate.history.json"
+
 echo "==> Staged:"
-ls -la "$UI_PUBLIC"/*.wasm "$UI_PUBLIC"/*.hash.json 2>/dev/null || true
+ls -la "$UI_PUBLIC"/*.wasm "$UI_PUBLIC"/*.hash.json "$UI_PUBLIC"/*.history.json 2>/dev/null || true
 ls -la "$UI_PUBLIC/browser-wasm" 2>/dev/null || true
 echo "Done."
 echo "  Browser (default):  cd ui && npm run dev   →  http://localhost:5173/"

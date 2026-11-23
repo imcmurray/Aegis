@@ -17,6 +17,24 @@ import { BRIDGE_BLOCKED_DETAIL, freenetBridgeBlocked } from "./freenetBridge";
 import { decodeEnvelopeResponse, encodeEnvelopeRequest } from "./cbor";
 import type { VaultRequest, VaultResponse } from "./messages";
 import { isEphemeralStorage, storageGet, storageSet } from "./storage";
+import {
+  bs58Decode,
+  historyEntryTarget,
+  parseDelegateHistory,
+  type DelegateHistoryEntry,
+  type DelegateTarget,
+} from "./delegateHistory";
+
+/** A previously released delegate that holds a vault the user can move (D20). */
+export type UpgradeSource = {
+  entry: DelegateHistoryEntry;
+  target: DelegateTarget;
+  identityPreserving: boolean;
+};
+
+export type UpgradeResult =
+  | { ok: true; identityPreserved: boolean; vault_id: string }
+  | { ok: false; message: string };
 
 /** Contract Put/Get/Update surface (Freenet mesh only). */
 export type FreenetMeshApi = {
@@ -30,6 +48,10 @@ export type VaultClient = {
   readonly label: string;
   /** Present when connected to a Freenet peer (for VaultSync). */
   readonly freenetApi?: FreenetMeshApi;
+  /** Freenet only: find a vault under a previously released delegate. */
+  findUpgradeSource?(): Promise<UpgradeSource | null>;
+  /** Freenet only: move that vault into the current delegate. */
+  upgradeFrom?(source: UpgradeSource, passphrase: string): Promise<UpgradeResult>;
 };
 
 export type ClientMode = "browser" | "mock" | "dev" | "freenet";
@@ -56,24 +78,31 @@ export function resolveMode(): ClientMode {
 }
 
 /**
- * Delegate-sealed session token (D19). Tab memory only: never persisted, never
+ * Delegate-sealed session tokens (D19), one slot per delegate target keyed by
+ * the target's instance key (base58). Tab memory only: never persisted, never
  * logged, never put in an Error message, not exported. A reload starts locked.
  */
-let sessionToken: Uint8Array | null = null;
+const tokenSlots = new Map<string, Uint8Array | null>();
 
-type DelegateKeys = {
-  /** Instance id bytes (blake3(code_hash || params)) */
-  keyBytes: number[];
-  /** Code hash bytes (blake3(wasm)) */
-  hashBytes: number[];
-  hashB58: string;
-  keyB58: string;
-};
+type DelegateKeys = DelegateTarget;
+
+async function loadDelegateHistory(): Promise<DelegateHistoryEntry[]> {
+  try {
+    const res = await fetch(new URL("aegis_vault_delegate.history.json", location.href));
+    if (!res.ok) return [];
+    return parseDelegateHistory(await res.json());
+  } catch (e) {
+    console.warn("[aegis/freenet] delegate history unavailable:", e);
+    return [];
+  }
+}
 
 type Pending = {
   resolve: (r: VaultResponse) => void;
   reject: (e: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  /** Token slot (target instance key) this request belongs to. */
+  slot: string;
 };
 
 type FreenetWsApiLike = {
@@ -167,7 +196,7 @@ export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
               clearTimeout(waiter.timer);
               try {
                 const reply = decodeEnvelopeResponse(bytes);
-                sessionToken = reply.token;
+                tokenSlots.set(waiter.slot, reply.token);
                 waiter.resolve(reply.resp);
               } catch (e) {
                 waiter.reject(e instanceof Error ? e : new Error(String(e)));
@@ -277,62 +306,186 @@ export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
       },
     };
 
+    const requestTo = (
+      target: DelegateTarget,
+      req: VaultRequest,
+      opts?: { timeoutMs?: number },
+    ): Promise<VaultResponse> => {
+      const slot = target.keyB58;
+      const timeoutMs = opts?.timeoutMs ?? 15_000;
+      const isCurrent = !!keys && target.keyB58 === keys.keyB58;
+      const run = async (): Promise<VaultResponse> => {
+        try {
+          return await runOnce();
+        } finally {
+          // Lock always drops the local token, whatever the outcome.
+          if (req.op === "lock") tokenSlots.delete(slot);
+        }
+      };
+      const runOnce = async (): Promise<VaultResponse> => {
+        if (!current.alive) {
+          console.log("[aegis/freenet] reconnecting…");
+          current = await connect();
+        }
+        const h = current;
+        const payload = encodeEnvelopeRequest(req, tokenSlots.get(slot) ?? null);
+        return new Promise<VaultResponse>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            const idx = h.pending.findIndex((p) => p.resolve === resolve);
+            if (idx >= 0) h.pending.splice(idx, 1);
+            // A late reply must not reach a later waiter: reopen next time.
+            if (!isCurrent) h.alive = false;
+            reject(
+              new Error(
+                "Delegate request timed out. The vault-delegate may not be registered on this peer.",
+              ),
+            );
+          }, timeoutMs);
+          h.pending.push({ resolve, reject, timer, slot });
+          void sendDelegateApplicationMessage(h.api, payload, target).catch((err) => {
+            const idx = h.pending.findIndex((p) => p.resolve === resolve);
+            if (idx >= 0) {
+              clearTimeout(h.pending[idx]!.timer);
+              h.pending.splice(idx, 1);
+            }
+            reject(err instanceof Error ? err : new Error(String(err)));
+          });
+        });
+      };
+      const p = chain.then(run, run);
+      chain = p.then(
+        () => undefined,
+        () => undefined,
+      );
+      return p;
+    };
+
+    const noKeys: VaultResponse = {
+      type: "error",
+      code: "internal",
+      message:
+        "Freenet connected but delegate keys missing. Run ./scripts/build-wasm.sh and open with &register=1, or set keys (docs/FREENET.md).",
+    };
+
+    let upgradeCache: { value: UpgradeSource | null } | null = null;
+
+    const errText = (r: VaultResponse, fallback: string): string =>
+      r.type === "error" && r.message ? r.message : fallback;
+
     const client: VaultClient = {
       label: keys ? "freenet delegate" : "freenet (no keys)",
       freenetApi: meshApi,
       request(req: VaultRequest): Promise<VaultResponse> {
-        if (!keys) {
-          return Promise.resolve({
-            type: "error",
-            code: "internal",
-            message:
-              "Freenet connected but delegate keys missing. Run ./scripts/build-wasm.sh and open with &register=1, or set keys (docs/FREENET.md).",
-          });
-        }
-        const k = keys;
-        const run = async (): Promise<VaultResponse> => {
+        if (!keys) return Promise.resolve(noKeys);
+        return requestTo(keys, req);
+      },
+      async findUpgradeSource(): Promise<UpgradeSource | null> {
+        if (!keys) return null;
+        if (upgradeCache) return upgradeCache.value;
+        const history = await loadDelegateHistory();
+        let found: UpgradeSource | null = null;
+        for (const entry of history) {
+          if (entry.code_hash_b58 === keys.hashB58) continue;
+          const target = historyEntryTarget(entry);
+          if (!target) continue;
           try {
-            return await runOnce();
-          } finally {
-            // Lock always drops the local token, whatever the outcome.
-            if (req.op === "lock") sessionToken = null;
+            const r = await requestTo(target, { op: "status" }, { timeoutMs: 5_000 });
+            if (r.type === "status" && r.has_vault) {
+              found = {
+                entry,
+                target,
+                identityPreserving: entry.capabilities.includes("export_for_upgrade"),
+              };
+              break;
+            }
+          } catch {
+            /* skipped silently */
           }
-        };
-        const runOnce = async (): Promise<VaultResponse> => {
-          if (!current.alive) {
-            console.log("[aegis/freenet] reconnecting…");
-            current = await connect();
+        }
+        upgradeCache = { value: found };
+        return found;
+      },
+      async upgradeFrom(source: UpgradeSource, passphrase: string): Promise<UpgradeResult> {
+        const cur = keys;
+        if (!cur) return { ok: false, message: noKeys.type === "error" ? noKeys.message : "" };
+        const src = source.target;
+        let sourceUnlocked = false;
+        try {
+          const u = await requestTo(src, { op: "unlock", passphrase });
+          if (u.type !== "unlocked") {
+            return { ok: false, message: errText(u, "Could not unlock the previous vault.") };
           }
-          const payload = encodeEnvelopeRequest(req, sessionToken);
-          return new Promise<VaultResponse>((resolve, reject) => {
-            const timer = setTimeout(() => {
-              const idx = current.pending.findIndex((p) => p.resolve === resolve);
-              if (idx >= 0) current.pending.splice(idx, 1);
-              reject(
-                new Error(
-                  "Delegate request timed out. The vault-delegate may not be registered on this peer.",
-                ),
-              );
-            }, 15_000);
-            current.pending.push({ resolve, reject, timer });
-            void sendDelegateApplicationMessage(current.api, payload, k).catch(
-              (err) => {
-                const idx = current.pending.findIndex((p) => p.resolve === resolve);
-                if (idx >= 0) {
-                  clearTimeout(current.pending[idx]!.timer);
-                  current.pending.splice(idx, 1);
-                }
-                reject(err instanceof Error ? err : new Error(String(err)));
-              },
-            );
-          });
-        };
-        const p = chain.then(run, run);
-        chain = p.then(
-          () => undefined,
-          () => undefined,
-        );
-        return p;
+          sourceUnlocked = true;
+
+          let vaultId: string;
+          let identityPreserved: boolean;
+          if (source.identityPreserving) {
+            const ex = await requestTo(src, { op: "export_for_upgrade" });
+            if (ex.type !== "upgrade_snapshot") {
+              return { ok: false, message: errText(ex, "Could not read the previous vault.") };
+            }
+            let snapshot: Uint8Array | null =
+              ex.snapshot instanceof Uint8Array ? ex.snapshot : new Uint8Array(ex.snapshot);
+            const imp = await requestTo(cur, { op: "import_upgrade_snapshot", snapshot });
+            snapshot = null;
+            if (imp.type !== "ok") {
+              return { ok: false, message: errText(imp, "Could not move the vault.") };
+            }
+            await requestTo(src, { op: "lock" });
+            sourceUnlocked = false;
+            const un = await requestTo(cur, { op: "unlock", passphrase });
+            if (un.type !== "unlocked") {
+              return { ok: false, message: errText(un, "Could not unlock the moved vault.") };
+            }
+            vaultId = un.vault_id;
+            identityPreserved = true;
+          } else {
+            const pwBytes = crypto.getRandomValues(new Uint8Array(32));
+            let backupPw: string | null = btoa(String.fromCharCode(...pwBytes));
+            pwBytes.fill(0);
+            const ex = await requestTo(src, { op: "export_encrypted", passphrase: backupPw });
+            if (ex.type !== "export") {
+              return { ok: false, message: errText(ex, "Could not read the previous vault.") };
+            }
+            let blob: Uint8Array | number[] | null = ex.blob;
+            await requestTo(src, { op: "lock" });
+            sourceUnlocked = false;
+            const imp = await requestTo(cur, {
+              op: "import_encrypted",
+              blob,
+              passphrase: backupPw,
+              new_passphrase: passphrase,
+              replace: false,
+            });
+            blob = null;
+            backupPw = null;
+            if (imp.type !== "unlocked") {
+              return { ok: false, message: errText(imp, "Could not move the vault.") };
+            }
+            const un = await requestTo(cur, { op: "unlock", passphrase });
+            if (un.type !== "unlocked") {
+              return { ok: false, message: errText(un, "Could not unlock the moved vault.") };
+            }
+            vaultId = un.vault_id;
+            identityPreserved = false;
+          }
+          upgradeCache = null;
+          return { ok: true, identityPreserved, vault_id: vaultId };
+        } catch (e) {
+          return {
+            ok: false,
+            message: e instanceof Error ? e.message : "Upgrade failed.",
+          };
+        } finally {
+          if (sourceUnlocked) {
+            try {
+              await requestTo(src, { op: "lock" });
+            } catch {
+              /* best effort */
+            }
+          }
+          tokenSlots.delete(src.keyB58);
+        }
       },
     };
 
@@ -605,33 +758,3 @@ async function resolveDelegateKeys(): Promise<DelegateKeys | null> {
   }
 }
 
-function bs58Decode(str: string): Uint8Array {
-  const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  const map = new Map<string, number>();
-  for (let i = 0; i < ALPHABET.length; i++) map.set(ALPHABET[i]!, i);
-
-  let zeros = 0;
-  for (const c of str) {
-    if (c === "1") zeros++;
-    else break;
-  }
-
-  const bytes: number[] = [0];
-  for (const c of str) {
-    const val = map.get(c);
-    if (val === undefined) throw new Error(`invalid base58: ${c}`);
-    let carry = val;
-    for (let j = 0; j < bytes.length; j++) {
-      carry += bytes[j]! * 58;
-      bytes[j] = carry & 0xff;
-      carry >>= 8;
-    }
-    while (carry > 0) {
-      bytes.push(carry & 0xff);
-      carry >>= 8;
-    }
-  }
-  for (let i = 0; i < zeros; i++) bytes.push(0);
-  bytes.reverse();
-  return new Uint8Array(bytes);
-}

@@ -135,7 +135,19 @@ export type VaultRequest =
       op: "open_share";
       envelope: number[] | Uint8Array;
       expected_sender_identity?: number[] | Uint8Array;
-    };
+    }
+  /** Freenet delegate upgrade (D20): export encrypted-at-rest records. */
+  | { op: "export_for_upgrade" }
+  /** Freenet delegate upgrade (D20): import a snapshot into an empty delegate. */
+  | { op: "import_upgrade_snapshot"; snapshot: Uint8Array | number[] };
+
+/** Decoded delegate upgrade snapshot (see common/src/upgrade.rs). */
+export interface UpgradeSnapshotV1 {
+  v: 1;
+  vault_id: Uint8Array;
+  key_epoch: number;
+  records: [Uint8Array, Uint8Array][];
+}
 
 /** Entry present on both sides but with differing fields (no secret values). */
 export interface ImportEntryChange {
@@ -237,6 +249,7 @@ export type VaultResponse =
     }
   | { type: "share_identity"; blob: Uint8Array | number[] }
   | { type: "share_envelope"; blob: Uint8Array | number[] }
+  | { type: "upgrade_snapshot"; snapshot: Uint8Array | number[] }
   | { type: "error"; code: string; message: string };
 
 /**

@@ -44,6 +44,8 @@ pub fn op_name(req: &VaultRequest) -> &'static str {
         VaultRequest::ExportShareIdentity => "export_share_identity",
         VaultRequest::CreateShare { .. } => "create_share",
         VaultRequest::OpenShare { .. } => "open_share",
+        VaultRequest::ExportForUpgrade {} => "export_for_upgrade",
+        VaultRequest::ImportUpgradeSnapshot { .. } => "import_upgrade_snapshot",
     }
 }
 

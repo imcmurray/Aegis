@@ -1,0 +1,7 @@
+[
+  {
+    "version": "2.0.0-rc.2+freenet-session",
+    "code_hash_b58": "Br4YLkPvZRsPcfoLLLfgqbANQje11mCSB3ysN2QMLhb1",
+    "capabilities": ["session_token"]
+  }
+]
