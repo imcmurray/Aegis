@@ -44,7 +44,7 @@ ml-dsa = "0.1.1"
 ml-kem = "0.3.2"
 
 # Freenet
-freenet-stdlib = { version = "0.8.4", default-features = false }
+freenet-stdlib = { version = "0.12.1", default-features = false }
 
 [profile.release]
 lto = true
