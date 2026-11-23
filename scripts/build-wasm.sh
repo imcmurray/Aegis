@@ -47,7 +47,12 @@ if ! cmp -s "$OUT/aegis_vault_sync.wasm" "$PINNED_SYNC"; then
   echo "  To ship a new sync contract on purpose, see contracts/vault-sync/pinned/README.md." >&2
 fi
 cp -f "$PINNED_SYNC" "$UI_PUBLIC/aegis_vault_sync.wasm"
-cp -f "$OUT/aegis_link_drop.wasm" "$UI_PUBLIC/aegis_link_drop.wasm"
+# The link-drop contract is pinned for the same reason (contracts/link-drop/pinned/README.md).
+PINNED_LINK="$ROOT/contracts/link-drop/pinned/aegis_link_drop.wasm"
+if ! cmp -s "$OUT/aegis_link_drop.wasm" "$PINNED_LINK"; then
+  echo "warning: the fresh link-drop build differs from the pinned release contract; staging the PINNED one." >&2
+fi
+cp -f "$PINNED_LINK" "$UI_PUBLIC/aegis_link_drop.wasm"
 
 if command -v wasm-bindgen >/dev/null 2>&1; then
   wasm-bindgen --target web --out-dir "$UI_PUBLIC/browser-wasm" \

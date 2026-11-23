@@ -15,6 +15,7 @@ Crypto suites, wire formats and the CLI protocol (`1`) are unchanged.
 - Freenet web container: a "Connecting to your Freenet node…" screen with a spinner and elapsed time shows while the peer connection opens, and Sync shows a spinner with a running clock.
 
 - The released VaultSync contract is now pinned (`contracts/vault-sync/pinned/`, code hash `7cFe…`). The contract links shared `aegis-common` code, so unrelated changes (this release's link-a-device code among them) changed the compiled WASM and would have moved every vault to a new, empty sync contract. `build-wasm.sh` stages the pinned binary and warns when a fresh build differs; CI fails if the staged contract is not the pinned one, and now also builds and import-checks the link-drop contract.
+- The link-drop contract is pinned too (`contracts/link-drop/pinned/`, `7NMw…`): both devices derive the link address from the code and its code hash, so computers on different builds must still agree on it.
 - Delegate history: the outgoing `4LJn…` delegate (session tokens + `export_for_upgrade`) is prepended, so existing Freenet vaults move to this release's delegate with their identity preserved.
 
 ### Fixed

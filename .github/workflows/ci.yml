@@ -100,14 +100,17 @@ jobs:
             target/wasm32-unknown-unknown/release/aegis_vault_sync.wasm \
             target/wasm32-unknown-unknown/release/aegis_vault_delegate.wasm \
             target/wasm32-unknown-unknown/release/aegis_link_drop.wasm \
-            contracts/vault-sync/pinned/aegis_vault_sync.wasm
+            contracts/vault-sync/pinned/aegis_vault_sync.wasm \
+            contracts/link-drop/pinned/aegis_link_drop.wasm
 
-      - name: Staged VaultSync contract is the pinned release
+      - name: Staged contracts are the pinned releases
         run: |
           # The sync contract's code hash is part of every user's contract address
           # (contracts/vault-sync/pinned/README.md). The UI must ship the pinned binary.
           cmp ui/public/aegis_vault_sync.wasm contracts/vault-sync/pinned/aegis_vault_sync.wasm
           grep -q '"code_hash_b58": "7cFetG8bR6BLUcXxKDnuAVLkrTMvAWwLV7duz7vzRth"' ui/public/aegis_vault_sync.hash.json
+          cmp ui/public/aegis_link_drop.wasm contracts/link-drop/pinned/aegis_link_drop.wasm
+          grep -q '"code_hash_b58": "7NMwr14MSTivJ4e968vCXed5BZA2iKpqnXheaMoy36d1"' ui/public/aegis_link_drop.hash.json
 
       - name: WASM import checker unit tests
         run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'

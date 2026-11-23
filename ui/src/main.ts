@@ -2924,10 +2924,16 @@ async function renderVault() {
   }
 
   /** Show (or clear) the notice naming entries another device removed. */
+  let removedNoticeSeq = 0;
   async function refreshRemovedNotice() {
+    // Overlapping calls (first load + a quick Sync) must not stack notices:
+    // only the latest call renders.
+    const seq = ++removedNoticeSeq;
     treeCard.querySelector(".removed-notice")?.remove();
     try {
       const r = await client.request({ op: "list_removed_remote" });
+      if (seq !== removedNoticeSeq) return;
+      treeCard.querySelector(".removed-notice")?.remove();
       if (r.type !== "removed_remote" || r.entries.length === 0) return;
       const notice = el("div", { class: "removed-notice", role: "status" });
       const dismiss = el("button", {
