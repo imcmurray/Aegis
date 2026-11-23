@@ -4,6 +4,7 @@
 //! Candidate keys are written under `aegis/gen/<id>/…` and stay invisible until
 //! `aegis/v1/active-gen` is switched — that pointer write is the commit point.
 
+use crate::delegate_session::SECRET_DELEGATE_SESSION_KEY;
 use crate::rng;
 use crate::vault::{apply_store_ops, SecretStore, StoreOp, SECRET_KEYS_V2, VAULT_INSTANCE_KEYS};
 
@@ -65,7 +66,7 @@ impl<S: SecretStore> GenerationStore<S> {
 
 impl<S: SecretStore> SecretStore for GenerationStore<S> {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
-        if key == ACTIVE_GEN_KEY {
+        if key == ACTIVE_GEN_KEY || key == SECRET_DELEGATE_SESSION_KEY {
             return self.inner.get(key);
         }
         if let Some(gen) = self.current_gen() {
@@ -76,7 +77,7 @@ impl<S: SecretStore> SecretStore for GenerationStore<S> {
     }
 
     fn set(&mut self, key: &[u8], value: &[u8]) {
-        if key == ACTIVE_GEN_KEY {
+        if key == ACTIVE_GEN_KEY || key == SECRET_DELEGATE_SESSION_KEY {
             self.inner.set(key, value);
             return;
         }
@@ -88,7 +89,7 @@ impl<S: SecretStore> SecretStore for GenerationStore<S> {
     }
 
     fn remove(&mut self, key: &[u8]) {
-        if key == ACTIVE_GEN_KEY {
+        if key == ACTIVE_GEN_KEY || key == SECRET_DELEGATE_SESSION_KEY {
             self.inner.remove(key);
             return;
         }
@@ -113,7 +114,7 @@ impl<S: SecretStore> SecretStore for GenerationStore<S> {
             let key = match op {
                 StoreOp::Put { key, .. } | StoreOp::Delete { key } => key,
             };
-            if key.as_slice() == ACTIVE_GEN_KEY {
+            if key.as_slice() == ACTIVE_GEN_KEY || key.as_slice() == SECRET_DELEGATE_SESSION_KEY {
                 continue;
             }
             if !snap.contains_key(key) {
@@ -177,6 +178,31 @@ mod tests {
             inner.get(SECRET_RECOVERY).is_none(),
             "legacy unprefixed recovery must be GC'd after first generation commit"
         );
+    }
+
+    #[test]
+    fn session_key_passes_through_unprefixed_and_survives_commit() {
+        let mut store = GenerationStore::new(MemoryStore::default());
+        store.set(SECRET_ENVELOPE, b"env");
+        store
+            .commit(&[StoreOp::put(SECRET_VAULT, b"v1".to_vec())])
+            .unwrap();
+        store.set(SECRET_DELEGATE_SESSION_KEY, b"ks-value");
+        store
+            .commit(&[StoreOp::put(SECRET_VAULT, b"v2".to_vec())])
+            .unwrap();
+        assert_eq!(store.get(SECRET_DELEGATE_SESSION_KEY).unwrap(), b"ks-value");
+        assert!(store.has(SECRET_DELEGATE_SESSION_KEY));
+        let inner = store.into_inner();
+        assert_eq!(inner.get(SECRET_DELEGATE_SESSION_KEY).unwrap(), b"ks-value");
+        assert_eq!(inner.get(ACTIVE_GEN_KEY).map(|g| g.len()), Some(32));
+        let gen = inner.get(ACTIVE_GEN_KEY).unwrap();
+        assert!(inner
+            .get(&GenerationStore::<MemoryStore>::prefixed(
+                &gen,
+                SECRET_DELEGATE_SESSION_KEY
+            ))
+            .is_none());
     }
 
     #[test]

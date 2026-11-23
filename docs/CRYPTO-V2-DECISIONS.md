@@ -395,6 +395,35 @@ Replaces the v1 8-character UI floor for every v2 passphrase-create path. Same f
 
 Unlock of an existing envelope does not re-apply this policy.
 
+### D19 — Freenet delegate session token (tab-held, delegate-sealed)
+
+**Problem.** The Freenet vault-delegate runs fresh for every request, so a successful `unlock` was forgotten at once and the next request saw the vault as locked.
+
+**Design.**
+
+- While a v2 vault is unlocked, each delegate reply carries an opaque **session token**. The UI keeps it in tab memory only and sends it back with every request inside the local IPC envelope `{v:1, token, req}` / `{v:1, token, resp}`.
+- The token is `0x01 || kid(16) || nonce(24) || XChaCha20-Poly1305(K_s, nonce, CBOR(claims), aad)`, with `aad = "aegis/v2/delegate-session-token/v1" || kid || origin`. Claims: `root`, `vault_id`, `key_epoch`, `issued_at`, `expires_at`.
+- **K_s** is a rotating session-wrap key (`kid` 16 bytes + `key` 32 bytes) kept in the delegate secret store under `aegis.v2.delegate_session_key`. It bypasses `GenerationStore` prefixing so it is never lost on a generation commit and is not part of any vault generation.
+- The origin in the AAD is the `ContractInstanceId` of the Aegis web app (`MessageOrigin::WebApp`); any other origin binds to a fixed `0x00`.
+- The delegate rebuilds the session from the token without Argon2 (`VaultSessionV2::resume_from_root`). Resume is read-only: no store writes and no audit event.
+- Every reply re-issues the token with `expires_at = now + 15 min` and the original `issued_at`. The session ends at the idle timeout (15 min), the absolute cap (12 h from `issued_at`), Lock, or another tab unlocking. A token is also rejected when its `vault_id` or `key_epoch` no longer matches the persisted envelope (for example after `RotateKeys`).
+- K_s is rotated by every successful establishing request (create, unlock, recovery unlock, import, migrate), by every `Lock` (even without a valid token) and whenever a session ends.
+- No clock (`now == 0`) means no token is issued or accepted (fail closed).
+- Bare `VaultRequest` payloads (legacy) keep the old stateless behaviour, never touch K_s and get no token. Browser mode, dev mode, the CLI and all persisted and crypto formats are unchanged. The IPC envelope is local-only and is not a persisted or network format.
+
+**Two tabs kick each other out.** Each unlock rotates K_s, so a second tab that unlocks invalidates the first tab's token. The first tab sees "locked" on its next request. This is accepted.
+
+**Threat analysis.**
+
+- The node disk or secret store alone (K_s) cannot recover the root without a token.
+- A token alone is useless off-node, and on-node it is bound to the Aegis web-app origin (ContractInstanceId in the AAD).
+- Tab memory holds the token for at most 15 min idle / 12 h absolute. That is comparable to browser mode, where unlocked keys already live in page memory.
+- The node process sees the root while executing, as it already did.
+- Lock rotates K_s and kills every token.
+- K_s is stored in the clear because the delegate is registered with an all-zero storage cipher; that is why the root itself is never stored.
+- Two tabs kick each other out.
+- The IPC envelope is local-only and is not a persisted or network format.
+
 ### Phase 2 / PR D (2026-09-06) — Core suite + envelopes
 
 Landed in `common/src/crypto/`. **Not** wired into `VaultSession::create` or import (Phase 5).

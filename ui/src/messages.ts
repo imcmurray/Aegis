@@ -239,6 +239,22 @@ export type VaultResponse =
   | { type: "share_envelope"; blob: Uint8Array | number[] }
   | { type: "error"; code: string; message: string };
 
+/**
+ * Freenet delegate IPC envelope (local UI<->delegate only, not persisted).
+ * `token` is the opaque delegate-sealed session token (null when locked).
+ */
+export interface DelegateRequestEnvelope {
+  v: 1;
+  token: Uint8Array | null;
+  req: VaultRequest;
+}
+
+export interface DelegateResponseEnvelope {
+  v: 1;
+  token: Uint8Array | null;
+  resp: VaultResponse;
+}
+
 export function emptyEntry(): Entry {
   const now = Math.floor(Date.now() / 1000);
   return {

@@ -2,6 +2,7 @@
 
 pub mod crypto;
 pub mod crdt;
+pub mod delegate_session;
 pub mod file_store;
 pub mod gen_store;
 pub mod health;
@@ -62,3 +63,7 @@ mod phase9_tests;
 #[cfg(test)]
 #[path = "../tests/phase10.rs"]
 mod phase10_tests;
+
+#[cfg(test)]
+#[path = "../tests/delegate_session.rs"]
+mod delegate_session_tests;

@@ -14,7 +14,7 @@
  */
 
 import { BRIDGE_BLOCKED_DETAIL, freenetBridgeBlocked } from "./freenetBridge";
-import { decodeResponse, encodeRequest } from "./cbor";
+import { decodeEnvelopeResponse, encodeEnvelopeRequest } from "./cbor";
 import type { VaultRequest, VaultResponse } from "./messages";
 import { isEphemeralStorage, storageGet, storageSet } from "./storage";
 
@@ -54,6 +54,12 @@ export function resolveMode(): ClientMode {
   }
   return "browser";
 }
+
+/**
+ * Delegate-sealed session token (D19). Tab memory only: never persisted, never
+ * logged, never put in an Error message, not exported. A reload starts locked.
+ */
+let sessionToken: Uint8Array | null = null;
 
 type DelegateKeys = {
   /** Instance id bytes (blake3(code_hash || params)) */
@@ -160,7 +166,9 @@ export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
               }
               clearTimeout(waiter.timer);
               try {
-                waiter.resolve(decodeResponse(bytes));
+                const reply = decodeEnvelopeResponse(bytes);
+                sessionToken = reply.token;
+                waiter.resolve(reply.resp);
               } catch (e) {
                 waiter.reject(e instanceof Error ? e : new Error(String(e)));
               }
@@ -283,11 +291,19 @@ export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
         }
         const k = keys;
         const run = async (): Promise<VaultResponse> => {
+          try {
+            return await runOnce();
+          } finally {
+            // Lock always drops the local token, whatever the outcome.
+            if (req.op === "lock") sessionToken = null;
+          }
+        };
+        const runOnce = async (): Promise<VaultResponse> => {
           if (!current.alive) {
             console.log("[aegis/freenet] reconnecting…");
             current = await connect();
           }
-          const payload = encodeRequest(req);
+          const payload = encodeEnvelopeRequest(req, sessionToken);
           return new Promise<VaultResponse>((resolve, reject) => {
             const timer = setTimeout(() => {
               const idx = current.pending.findIndex((p) => p.resolve === resolve);

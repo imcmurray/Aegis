@@ -7,10 +7,15 @@
  * both decoders accept both encodings.
  */
 
+import { Encoder } from "cbor-x";
 import {
   GOLDEN,
+  decodeEnvelopeRequest,
+  decodeEnvelopeResponse,
   decodeRequest,
   decodeResponse,
+  encodeEnvelopeRequest,
+  encodeEnvelopeResponse,
   encodeRequest,
   encodeResponse,
   hexToBytes,
@@ -117,6 +122,80 @@ function assert(cond: unknown, msg: string): asserts cond {
   });
   const back = decodeResponse(resp);
   assert(back.type === "error" && back.code === "locked", "error roundtrip");
+}
+
+// Delegate IPC envelope: Rust golden vectors
+{
+  const env = decodeEnvelopeRequest(hexToBytes(GOLDEN.ENVELOPE_STATUS_REQ));
+  assert(env.v === 1, "envelope req v");
+  assert(env.token === null, "envelope req token null");
+  assert(env.req.op === "status", "envelope req op");
+
+  const resp = decodeEnvelopeResponse(hexToBytes(GOLDEN.ENVELOPE_LOCKED_RESP));
+  assert(resp.v === 1, "envelope resp v");
+  assert(resp.token === null, "envelope resp token null");
+  assert(resp.resp.type === "locked", "envelope resp type");
+}
+
+// Envelope request round trip: null token and a 57-byte token
+{
+  const nullBack = decodeEnvelopeRequest(encodeEnvelopeRequest({ op: "status" }, null));
+  assert(nullBack.token === null, "env req null token");
+  assert(nullBack.req.op === "status", "env req null op");
+
+  const token = new Uint8Array(57).map((_, i) => i + 1);
+  const bytes = encodeEnvelopeRequest({ op: "lock" }, token);
+  // Token must be a CBOR byte string (major type 2), not an array.
+  const hex = bytesToHex(bytes);
+  assert(hex.includes("5839" + bytesToHex(token)), "token encoded as byte string");
+  const back = decodeEnvelopeRequest(bytes);
+  assert(back.token instanceof Uint8Array, "env req token is Uint8Array");
+  assert(back.token !== null && bytesToHex(back.token) === bytesToHex(token), "env req token bytes");
+  assert(back.req.op === "lock", "env req token op");
+}
+
+// Envelope response round trip: with token and null
+{
+  const token = new Uint8Array(57).map((_, i) => i + 1);
+  const withTok = decodeEnvelopeResponse(
+    encodeEnvelopeResponse({ type: "unlocked", vault_id: "abc" }, token),
+  );
+  assert(withTok.token instanceof Uint8Array, "env resp token is Uint8Array");
+  assert(
+    withTok.token !== null && bytesToHex(withTok.token) === bytesToHex(token),
+    "env resp token bytes",
+  );
+  assert(
+    withTok.resp.type === "unlocked" && withTok.resp.vault_id === "abc",
+    "env resp with token body",
+  );
+  const noTok = decodeEnvelopeResponse(encodeEnvelopeResponse({ type: "locked" }, null));
+  assert(noTok.token === null && noTok.resp.type === "locked", "env resp null token");
+}
+
+// Bare (old delegate) response decodes with token null
+{
+  const bare = decodeEnvelopeResponse(
+    encodeResponse({ type: "error", code: "locked", message: "vault is locked" }),
+  );
+  assert(bare.token === null, "bare resp token null");
+  assert(bare.resp.type === "error" && bare.resp.code === "locked", "bare resp body");
+}
+
+// Unsupported envelope version throws
+{
+  const v2 = new Encoder({ useRecords: false, mapsAsObjects: true }).encode({
+    v: 2,
+    token: null,
+    resp: { type: "locked" },
+  });
+  let threw = false;
+  try {
+    decodeEnvelopeResponse(v2 instanceof Uint8Array ? v2 : new Uint8Array(v2));
+  } catch (e) {
+    threw = e instanceof Error && e.message === "unsupported delegate envelope version";
+  }
+  assert(threw, "v:2 envelope must throw");
 }
 
 // Log TS encodings so we can feed them through Rust if needed

@@ -4,7 +4,12 @@
  */
 
 import { Decoder, Encoder } from "cbor-x";
-import type { VaultRequest, VaultResponse } from "./messages";
+import type {
+  DelegateRequestEnvelope,
+  DelegateResponseEnvelope,
+  VaultRequest,
+  VaultResponse,
+} from "./messages";
 
 const encoder = new Encoder({
   useRecords: false,
@@ -39,6 +44,78 @@ export function encodeResponse(resp: VaultResponse): Uint8Array {
 export function decodeRequest(bytes: Uint8Array): VaultRequest {
   const obj = decoder.decode(bytes) as Record<string, unknown>;
   return plainToRequest(obj);
+}
+
+/** Delegate IPC envelope version (Freenet only; see docs/FREENET.md). */
+export const DELEGATE_IPC_VERSION = 1;
+
+function plainToken(value: unknown): Uint8Array | null {
+  if (value instanceof Uint8Array) return new Uint8Array(value);
+  return null;
+}
+
+function encodeEnvelope(body: Record<string, unknown>): Uint8Array {
+  const encoded = encoder.encode(body);
+  return encoded instanceof Uint8Array ? encoded : new Uint8Array(encoded);
+}
+
+export function encodeEnvelopeRequest(
+  req: VaultRequest,
+  token: Uint8Array | null,
+): Uint8Array {
+  return encodeEnvelope({
+    v: DELEGATE_IPC_VERSION,
+    token: token ? new Uint8Array(token) : null,
+    req: requestToPlain(req),
+  });
+}
+
+export function decodeEnvelopeRequest(bytes: Uint8Array): DelegateRequestEnvelope {
+  const obj = decoder.decode(bytes) as Record<string, unknown>;
+  if (obj.v !== DELEGATE_IPC_VERSION) {
+    throw new Error("unsupported delegate envelope version");
+  }
+  if (obj.req === undefined || obj.req === null) {
+    throw new Error("delegate envelope missing req");
+  }
+  return {
+    v: 1,
+    token: plainToken(obj.token),
+    req: plainToRequest(obj.req as Record<string, unknown>),
+  };
+}
+
+export function encodeEnvelopeResponse(
+  resp: VaultResponse,
+  token: Uint8Array | null,
+): Uint8Array {
+  return encodeEnvelope({
+    v: DELEGATE_IPC_VERSION,
+    token: token ? new Uint8Array(token) : null,
+    resp: responseToPlain(resp),
+  });
+}
+
+/**
+ * Decode a delegate reply. A reply without `"v"` (old delegate, bare
+ * VaultResponse) decodes as `{ token: null, resp }`.
+ */
+export function decodeEnvelopeResponse(bytes: Uint8Array): DelegateResponseEnvelope {
+  const obj = decoder.decode(bytes) as Record<string, unknown>;
+  if (obj.v === undefined) {
+    return { v: 1, token: null, resp: plainToResponse(obj) };
+  }
+  if (obj.v !== DELEGATE_IPC_VERSION) {
+    throw new Error("unsupported delegate envelope version");
+  }
+  if (obj.resp === undefined || obj.resp === null) {
+    throw new Error("delegate envelope missing resp");
+  }
+  return {
+    v: 1,
+    token: plainToken(obj.token),
+    resp: plainToResponse(obj.resp as Record<string, unknown>),
+  };
 }
 
 function requestToPlain(req: VaultRequest): Record<string, unknown> {
@@ -625,4 +702,8 @@ export const GOLDEN = {
   STATUS_RESP:
     "a4647479706566737461747573696861735f7661756c74f568756e6c6f636b6564f4687661756c745f696463616263",
   EXPORT_RESP: "a26474797065666578706f727464626c6f624401020304",
+  // {v:1, token:null, req:{op:"status"}}
+  ENVELOPE_STATUS_REQ: "a361760165746f6b656ef663726571a1626f7066737461747573",
+  // {v:1, token:null, resp:{type:"locked"}}
+  ENVELOPE_LOCKED_RESP: "a361760165746f6b656ef66472657370a16474797065666c6f636b6564",
 } as const;

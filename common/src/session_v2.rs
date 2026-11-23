@@ -132,6 +132,56 @@ impl VaultSessionV2 {
         Ok(session)
     }
 
+    /// Rebuild an unlocked session from a known RootSecret (delegate session
+    /// token resume). Same steps as `unlock` after the KDF. Read-only: never
+    /// writes to the store and does not push an audit event.
+    pub fn resume_from_root(
+        store: &dyn SecretStore,
+        root: RootSecret,
+        vault_id: [u8; 16],
+        key_epoch: u32,
+    ) -> Result<Self, VaultError> {
+        let env_bytes = store
+            .get(SECRET_ENVELOPE_V2)
+            .ok_or_else(|| VaultError::Msg("vault not found".into()))?;
+        let envelope = MasterEnvelopeV2::from_bytes(&env_bytes)?;
+        if envelope.vault_id_bytes()? != vault_id || envelope.key_epoch != key_epoch {
+            return Err(VaultError::Msg("session does not match vault".into()));
+        }
+        let vault_bytes = store
+            .get(SECRET_VAULT_V2)
+            .ok_or_else(|| VaultError::Msg("vault blob not found".into()))?;
+        let blob = VaultBlobV2::from_bytes(&vault_bytes)?;
+        if blob.key_epoch != key_epoch {
+            return Err(VaultError::Msg("key_epoch mismatch".into()));
+        }
+        let keys = derive_operational_keys(&root, &vault_id)?;
+        let pt = open_vault_v2(&keys.vault_dek, &blob)?;
+        let doc: VaultDocument =
+            ciborium::from_reader(pt.as_slice()).map_err(|e| VaultError::Serde(e.to_string()))?;
+        let audit = load_audit_v2(store, &keys.audit_dek).unwrap_or_default();
+        Ok(Self {
+            root,
+            keys,
+            vault_id,
+            key_epoch,
+            doc,
+            audit,
+        })
+    }
+
+    pub(crate) fn root_secret(&self) -> &RootSecret {
+        &self.root
+    }
+
+    pub fn vault_id(&self) -> [u8; 16] {
+        self.vault_id
+    }
+
+    pub fn key_epoch(&self) -> u32 {
+        self.key_epoch
+    }
+
     pub fn unlock_with_recovery(
         store: &mut dyn SecretStore,
         recovery_display: &str,

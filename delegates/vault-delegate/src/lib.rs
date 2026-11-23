@@ -5,11 +5,11 @@
 
 #![allow(dead_code)] // referenced via #[delegate] WASM export path
 
+use aegis_common::delegate_session::{process_message, SessionOrigin};
 use aegis_common::gen_store::GenerationStore;
-use aegis_common::messages::{VaultRequest, VaultResponse};
+use aegis_common::types::unix_now;
 use aegis_common::vault::{
-    dispatch, ActiveSession, SecretStore, UNSUPPORTED_ATOMIC_COMMIT, SECRET_AUDIT, SECRET_ENVELOPE,
-    SECRET_SESSION, SECRET_VAULT,
+    SecretStore, UNSUPPORTED_ATOMIC_COMMIT, SECRET_AUDIT, SECRET_ENVELOPE, SECRET_VAULT,
 };
 use freenet_stdlib::prelude::*;
 
@@ -51,17 +51,26 @@ impl SecretStore for CtxStore<'_> {
 
 struct Delegate;
 
-fn respond(resp: VaultResponse) -> Result<Vec<OutboundDelegateMsg>, DelegateError> {
-    let payload = resp
-        .to_cbor()
-        .map_err(|e| DelegateError::Deser(e))?;
+fn respond(payload: Vec<u8>) -> Result<Vec<OutboundDelegateMsg>, DelegateError> {
     Ok(vec![OutboundDelegateMsg::ApplicationMessage(
         ApplicationMessage::new(payload).processed(true),
     )])
 }
 
-fn load_session(_store: &dyn SecretStore) -> Option<ActiveSession> {
-    None
+/// Map the Freenet message origin to the session-token origin binding.
+#[allow(unreachable_patterns)]
+fn session_origin(origin: &Option<MessageOrigin>) -> SessionOrigin {
+    match origin {
+        Some(MessageOrigin::WebApp(id)) => match <[u8; 32]>::try_from(id.as_bytes()) {
+            Ok(bytes) => SessionOrigin::WebApp(bytes),
+            Err(_) => SessionOrigin::Other,
+        },
+        _ => SessionOrigin::Other,
+    }
+}
+
+fn fill_random(buf: &mut [u8]) {
+    aegis_common::rng::fill_random(buf);
 }
 
 #[delegate]
@@ -69,28 +78,26 @@ impl DelegateInterface for Delegate {
     fn process(
         ctx: &mut DelegateCtx,
         _parameters: Parameters<'static>,
-        _origin: Option<MessageOrigin>,
+        origin: Option<MessageOrigin>,
         message: InboundDelegateMsg,
     ) -> Result<Vec<OutboundDelegateMsg>, DelegateError> {
         match message {
             InboundDelegateMsg::ApplicationMessage(app_msg) => {
-                let req = VaultRequest::from_cbor(&app_msg.payload)
-                    .map_err(|e| DelegateError::Deser(e))?;
-
+                let origin = session_origin(&origin);
                 let mut store = GenerationStore::new(CtxStore { ctx });
-                let mut session = load_session(&store);
-                let resp = dispatch(&mut store, &mut session, req);
-
-                if store.has(SECRET_SESSION) {
-                    if !matches!(session, Some(ActiveSession::V1(_))) {
-                        store.remove(SECRET_SESSION);
-                    }
-                }
+                let out = process_message(
+                    &mut store,
+                    &app_msg.payload,
+                    unix_now(),
+                    &origin,
+                    &mut |b| fill_random(b),
+                )
+                .map_err(DelegateError::Deser)?;
 
                 // Touch keys so the compiler knows we intend to use them (documentation).
                 let _ = (SECRET_ENVELOPE, SECRET_VAULT, SECRET_AUDIT);
 
-                respond(resp)
+                respond(out)
             }
             InboundDelegateMsg::UserResponse(_) => {
                 // Future: confirm export / share consent.
@@ -105,7 +112,8 @@ impl DelegateInterface for Delegate {
 mod tests {
     use super::*;
     use aegis_common::crypto::KdfProfile;
-    use aegis_common::vault::MemoryStore;
+    use aegis_common::messages::{VaultRequest, VaultResponse};
+    use aegis_common::vault::{dispatch, MemoryStore};
 
     #[test]
     fn dispatch_via_memory_store() {

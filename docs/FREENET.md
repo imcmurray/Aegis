@@ -99,9 +99,23 @@ Badge should read **`freenet delegate`** when keys work and the peer answers.
 
 ## Protocol
 
-- UI → Freenet Core → **vault-delegate** (`ApplicationMessage` payload = CBOR `VaultRequest`)
-- Response: CBOR `VaultResponse`
+- UI → Freenet Core → **vault-delegate** (`ApplicationMessage` payload = CBOR envelope `{v: 1, token, req}`, where `req` is a `VaultRequest` and `token` is a byte string or null)
+- Response: CBOR envelope `{v: 1, token, resp}`, where `resp` is a `VaultResponse`
+- The envelope is local-only (UI ↔ delegate). It is not a persisted or network format. A bare `VaultRequest` / `VaultResponse` (no `v`) is still accepted and answered statelessly with no token.
 - Secrets stay in the delegate secret store (same as dev server FileStore, but Freenet-managed)
+
+### How a Freenet session stays unlocked
+
+The delegate runs fresh for every request, so it cannot remember an unlock. Instead:
+
+1. After a successful unlock of a v2 vault the delegate returns an opaque **session token** in the reply envelope. It is sealed under a rotating key (K_s) that lives in the delegate secret store, and it is bound to the Aegis web-app origin.
+2. The UI keeps the token in tab memory only (never in storage, the URL or logs) and sends it with every request. The delegate uses it to rebuild the session without Argon2 and returns a fresh token.
+3. The vault stays unlocked until **15 min idle**, **12 h absolute** (from the unlock), **Lock**, or another tab unlocks.
+4. **Reload means locked**: the token is not persisted, so a page reload starts at the unlock screen.
+5. **Two tabs kick each other out**: each unlock rotates K_s, so the older tab's token stops working and that tab sees "locked" on its next request.
+6. **Lock kills every token**: Lock rotates K_s, so any copy of an earlier token is dead.
+
+Design and threat analysis: `docs/CRYPTO-V2-DECISIONS.md` D19.
 
 ## WASM import rule
 
