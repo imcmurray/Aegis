@@ -1,4 +1,4 @@
-import { inFreenetWebContainer } from "./freenetBridge";
+import { freenetShellDownload, inFreenetWebContainer } from "./freenetBridge";
 import { createVaultClient, type UpgradeSource, type VaultClient } from "./client";
 import {
   CLIPBOARD_CLEAR_SECONDS,
@@ -56,6 +56,11 @@ function caps() {
 /** Copy a passphrase out of an input and clear the field so JS does not retain it. */
 function downloadBytes(data: Uint8Array | number[], filename: string) {
   const bytes = data instanceof Uint8Array ? new Uint8Array(data) : new Uint8Array(data);
+  if (inFreenetWebContainer()) {
+    // A blob: download from the sandboxed frame is blocked (see freenetShellDownload).
+    freenetShellDownload(bytes, filename);
+    return;
+  }
   const blob = new Blob([bytes.buffer], { type: "application/octet-stream" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -1670,17 +1675,7 @@ async function renderVault() {
       window.alert(resp.type === "error" ? resp.message : "Export failed");
       return;
     }
-    const bytes =
-      resp.blob instanceof Uint8Array
-        ? new Uint8Array(resp.blob)
-        : new Uint8Array(resp.blob);
-    const blob = new Blob([bytes.buffer], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `aegis-backup-${new Date().toISOString().slice(0, 10)}.aegis`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBytes(resp.blob, `aegis-backup-${new Date().toISOString().slice(0, 10)}.aegis`);
   });
 
   auditBtn.addEventListener("click", async () => {
