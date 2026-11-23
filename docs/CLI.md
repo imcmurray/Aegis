@@ -9,7 +9,7 @@ Install the **attested** linux-x86_64 CLI from the matching GitHub Release
 provenance attested). omarchy-aegis refuses any other binary.
 
 ```bash
-tag=v2.0.0-rc.1.1
+tag=v2.0.0-rc.2
 base=https://github.com/imcmurray/Aegis/releases/download/$tag
 dir="${XDG_RUNTIME_DIR:?}/aegis-cli-$$"
 mkdir -p "$dir"

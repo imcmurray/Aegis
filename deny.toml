@@ -13,6 +13,7 @@ all-features = false
 yanked = "deny"
 ignore = [
     { id = "RUSTSEC-2025-0141", reason = "bincode 1.3.3 is unmaintained and pulled only by freenet-stdlib 0.8.4. Aegis vault/backup/recovery/sync/share serialization is ciborium, not bincode. Replacing Freenet's serializer is not an Aegis suite/protocol change." },
+    { id = "RUSTSEC-2026-0543", reason = "chrono 0.4.45 is unmaintained and is a mandatory dependency of freenet-stdlib (0.8.4 through 0.12.1). freenet_stdlib::time::now() receives the host's raw chrono::DateTime<Utc> bytes, so chrono's layout is the Freenet host-time ABI; Aegis cannot swap it unilaterally. Aegis calls it only in common::types::unix_now (contract/delegate builds). Revisit when freenet-stdlib drops or feature-gates chrono." },
 ]
 
 [licenses]

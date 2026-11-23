@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.0.0-rc.2] — 2026-11-22
+
+Security dependency refresh. Crypto suites, wire formats and the CLI protocol (`1`) are unchanged. Application version is `2.0.0-rc.2`.
+
+### Security
+
+- `ctutils` 0.4.2 → 0.4.8 (RUSTSEC-2026-0385: non-constant-time mask generation and `u128` comparisons). It is reached via `blake3` → `digest` in every crate, including the contract and delegate.
+- `tokio` 1.53.1 → 1.54.1 (RUSTSEC-2026-0386: `AsyncFd` I/O-safety unsoundness). Only `tools/dev-vault-server` uses it.
+- `chrono` (RUSTSEC-2026-0543, unmaintained) is ignored in `deny.toml` and `.cargo/audit.toml`, with the reason recorded. It is a mandatory dependency of `freenet-stdlib` (0.8.4 through 0.12.1), and its in-memory layout is the Freenet host-time ABI, so Aegis cannot swap it unilaterally.
+
+### Freenet contract identity changed
+
+The VaultSync contract and vault delegate WASM differ from rc.1, so their Freenet instance addresses differ too (address = code hash + params). No real vaults existed on the rc.1 contract. Release build (`--release`, wasm32-unknown-unknown, rustc 1.98.1) sha256:
+
+- `aegis_vault_sync.wasm` `b216eba06170ec9d163557858550abc174208b4d28be171af677139f17ac3086`
+- `aegis_vault_delegate.wasm` `27387dddcaabee8b386713848af791d6b1064a7b2311b1b5183e0899f0fe73f8`
+
 ## [2.0.0-rc.1.1] — 2026-09-11
 
 Follow-on to `v2.0.0-rc.1` (semver spelling of an rc1-1). Crypto/protocol unchanged. Application version is `2.0.0-rc.1.1`.

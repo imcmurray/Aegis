@@ -3,4 +3,5 @@
 [advisories]
 ignore = [
     "RUSTSEC-2025-0141", # unmaintained bincode, only via freenet-stdlib; Aegis uses ciborium
+    "RUSTSEC-2026-0543", # unmaintained chrono, mandatory in freenet-stdlib; its layout is the Freenet host-time ABI (see deny.toml)
 ]
