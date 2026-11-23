@@ -31,14 +31,26 @@ Master passphrase → WrapKek → RootSecret (memory-only)
 
 ## Using two computers
 
-The sync identity comes from the vault's random RootSecret, not from the passphrase. A vault created on device B with the same passphrase has a different RootSecret, so it would sync to a different contract. Device B needs device A's RootSecret, and today the only way to carry it is a Recovery Kit plus a backup:
+The sync identity comes from the vault's random RootSecret, not from the passphrase. A vault created on device B with the same passphrase has a different RootSecret, so it would sync to a different contract. Device B has to join device A's vault, not create its own. The primary way is a one-time **link code**.
+
+### Link a device (primary)
 
 1. Both: a Freenet peer, and Aegis opened once with `?register=1` to install the delegate.
-2. Device A (unlocked): Settings → **Recovery Kit** → generate it, keeping the `.aegis-recovery` file and the `AEGIS2-…` secret. Then **Export** a normal `.aegis` backup.
-3. Device B (empty delegate, "Create vault" screen): use **Disaster recovery (same identity)** with the kit, its secret, the backup and its password, plus a live passphrase for B. B keeps the vault ID and sync owner key and gets its own device ID.
-4. Device A: edit → **Sync**. Device B: unlock → **Sync** → pull/merge. Both use the same sync contract.
+2. Device A (unlocked): Settings → **Link a device** → **Create link code**. A shows the `AEGL-…` code (also as a QR), a 10-minute countdown and "Waiting for the new device…".
+3. Device B (empty delegate, "Create vault" screen): in the **Link this device** card enter the code and the master passphrase of the vault, then press **Link**. B gets the same vault ID, key epoch, entries and sync identity, and its own device ID. A shows "Linked a new device".
+4. Both: press **Sync** (B pulls A's latest revision; later edits sync both ways). Both use the same sync contract.
 
-Kit + secret = control of the vault identity. Move them out of band and store them apart. A dedicated "link a device" flow is future work.
+The code expires after 10 minutes, can be cancelled, and is invalidated with a tombstone once used. You need the code **and** the master passphrase; the code alone opens nothing. See `docs/FREENET.md` ("Linking a second device") and `docs/CRYPTO-V2-DECISIONS.md` D21.
+
+### Disaster recovery (Recovery Kit + backup)
+
+If device A is gone, or you cannot create a link code, use a Recovery Kit plus a backup:
+
+1. Device A (unlocked, earlier): Settings → **Recovery Kit** → generate it, keeping the `.aegis-recovery` file and the `AEGIS2-…` secret. Also **Export** a normal `.aegis` backup.
+2. Device B (empty delegate, "Create vault" screen): use **Disaster recovery (same identity)** with the kit, its secret, the backup and its password, plus a live passphrase for B. B keeps the vault ID and sync owner key and gets its own device ID.
+3. Device A: edit → **Sync**. Device B: unlock → **Sync** → pull/merge. Both use the same sync contract.
+
+Kit + secret = control of the vault identity. Move them out of band and store them apart.
 
 A plain `.aegis` Export/Import moves the entries but mints a **new** identity, so the two copies would not sync with each other.
 

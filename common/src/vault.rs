@@ -757,7 +757,11 @@ impl VaultSession {
             | VaultRequest::MigrateVault { .. }
             | VaultRequest::MigrateVaultWithRecovery { .. }
             | VaultRequest::ExportForUpgrade {}
-            | VaultRequest::ImportUpgradeSnapshot { .. } => Err(VaultError::Msg(
+            | VaultRequest::ImportUpgradeSnapshot { .. }
+            | VaultRequest::CreateLinkOffer {}
+            | VaultRequest::SignLinkState { .. }
+            | VaultRequest::LinkLocate { .. }
+            | VaultRequest::AcceptLink { .. } => Err(VaultError::Msg(
                 "request must be handled by dispatcher".into(),
             )),
             VaultRequest::RotateKeys { .. }
@@ -1707,6 +1711,15 @@ pub fn dispatch_with_sync(
         VaultRequest::ImportUpgradeSnapshot { .. } => {
             VaultResponse::err(ErrorCode::InvalidRequest, "upgrade import not permitted")
         }
+        // D21: link ops. LinkLocate is pure; the rest need the IPC envelope.
+        VaultRequest::LinkLocate { code } => crate::link::handle_link_locate(&code),
+        VaultRequest::CreateLinkOffer {} | VaultRequest::SignLinkState { .. } => {
+            VaultResponse::err(ErrorCode::Locked, "vault is locked")
+        }
+        VaultRequest::AcceptLink { .. } => VaultResponse::err(
+            ErrorCode::InvalidRequest,
+            crate::link::ERR_LINK_NOT_PERMITTED,
+        ),
         other => {
             let Some(s) = session.as_mut() else {
                 return VaultResponse::err(ErrorCode::Locked, "vault is locked");

@@ -139,7 +139,28 @@ export type VaultRequest =
   /** Freenet delegate upgrade (D20): export encrypted-at-rest records. */
   | { op: "export_for_upgrade" }
   /** Freenet delegate upgrade (D20): import a snapshot into an empty delegate. */
-  | { op: "import_upgrade_snapshot"; snapshot: Uint8Array | number[] };
+  | { op: "import_upgrade_snapshot"; snapshot: Uint8Array | number[] }
+  /** Link a device (D21), device A: mint a one-time link code + sealed offer. */
+  | { op: "create_link_offer" }
+  /** Link a device (D21), device A: sign a tombstone for a code. */
+  | { op: "sign_link_state"; code: string; seq: number; kind: "tombstone" }
+  /** Link a device (D21): derive the link-drop contract params from a code. */
+  | { op: "link_locate"; code: string }
+  /** Link a device (D21), device B: install a vault from a fetched offer. */
+  | {
+      op: "accept_link";
+      code: string;
+      state: Uint8Array | number[];
+      passphrase: string;
+    };
+
+/** Decoded link-drop contract state (see common/src/link.rs). */
+export interface LinkDropState {
+  seq: number;
+  kind: "offer" | "ack" | "tombstone";
+  body: Uint8Array;
+  sig: Uint8Array;
+}
 
 /** Decoded delegate upgrade snapshot (see common/src/upgrade.rs). */
 export interface UpgradeSnapshotV1 {
@@ -250,6 +271,21 @@ export type VaultResponse =
   | { type: "share_identity"; blob: Uint8Array | number[] }
   | { type: "share_envelope"; blob: Uint8Array | number[] }
   | { type: "upgrade_snapshot"; snapshot: Uint8Array | number[] }
+  | {
+      type: "link_offer";
+      code: string;
+      params: Uint8Array | number[];
+      state: Uint8Array | number[];
+      expires_at: number;
+    }
+  | { type: "link_state"; state: Uint8Array | number[] }
+  | { type: "link_location"; params: Uint8Array | number[] }
+  | {
+      type: "linked";
+      vault_id: string;
+      device_id_hash: Uint8Array | number[];
+      ack_state: Uint8Array | number[];
+    }
   | { type: "error"; code: string; message: string };
 
 /**

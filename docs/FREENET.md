@@ -30,7 +30,9 @@ This produces:
 
 - `ui/public/aegis_vault_delegate.wasm`
 - `ui/public/aegis_vault_sync.wasm`
+- `ui/public/aegis_link_drop.wasm` (the link-a-device contract, see "Linking a second device")
 - `ui/public/aegis_vault_delegate.hash.json` (blake3 / base58 code hash)
+- `ui/public/aegis_vault_sync.hash.json` and `ui/public/aegis_link_drop.hash.json`
 
 ## 2. Start a local Freenet peer
 
@@ -127,6 +129,16 @@ Freenet stores a delegate's secrets under `blake3(code_hash || params)`, so a ne
 
 The old delegate's copy is left in place. If the upgrade fails, nothing in the old delegate changed and you can retry. Design: `docs/CRYPTO-V2-DECISIONS.md` D20.
 
+## Linking a second device
+
+A second computer joins an existing vault with a one-time **link code** and the master passphrase. It needs no Recovery Kit and no files.
+
+1. Device A (unlocked, Freenet mode): Settings → **Link a device** → **Create link code**. The delegate seals a copy of the vault's already-encrypted records (envelope, vault, recovery wrap, sync transition) under keys derived from the code, signs it, and the UI publishes it to an `aegis-link-drop` contract (`aegis_link_drop.wasm`). The contract's instance id is derived from the code alone, so device B can find it with nothing else.
+2. Device B (empty delegate, Freenet mode): on the create screen use **Link this device**, enter the code and the master passphrase. The delegate validates the offer and installs the vault with the same vault ID, key epoch, entries and sync identity, but its own device ID. B then publishes an acknowledgement.
+3. Device A sees the acknowledgement and publishes a tombstone.
+
+The code is valid for 10 minutes. The offer carries no root key, DEK or session key, only records that are still passphrase-wrapped or DEK-sealed. Freenet cannot delete data, so the tombstone **replaces** the ciphertext on hosting nodes instead of removing the contract. A cached copy of the offer is useless without the code, and opening the vault from it still needs the passphrase. Cancelling, expiry and closing Settings all publish a tombstone (best effort; if the vault auto-locked, the code simply expires). Design: `docs/CRYPTO-V2-DECISIONS.md` D21. After linking, press **Sync** on both devices.
+
 ## WASM import rule
 
 Contract and delegate WASM may import **only `freenet_*` host modules**. A real
@@ -148,6 +160,7 @@ node rejects anything else, so wasm-bindgen / js-sys must never reach them
   ```bash
   python3 scripts/check-wasm-imports.py \
     target/wasm32-unknown-unknown/release/aegis_vault_sync.wasm \
+    target/wasm32-unknown-unknown/release/aegis_link_drop.wasm \
     target/wasm32-unknown-unknown/release/aegis_vault_delegate.wasm
   ```
 

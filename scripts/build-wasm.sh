@@ -8,6 +8,10 @@ echo "==> Building vault-sync contract…"
 cargo build --release --target wasm32-unknown-unknown \
   -p aegis-vault-sync --features freenet-main-contract
 
+echo "==> Building link-drop contract…"
+cargo build --release --target wasm32-unknown-unknown \
+  -p aegis-link-drop --features freenet-main-contract
+
 echo "==> Building vault-delegate…"
 cargo build --release --target wasm32-unknown-unknown \
   -p aegis-vault-delegate --features freenet-main-delegate
@@ -19,6 +23,7 @@ OUT="$ROOT/target/wasm32-unknown-unknown/release"
 echo "==> Checking Freenet WASM imports…"
 python3 "$ROOT/scripts/check-wasm-imports.py" \
   "$OUT/aegis_vault_sync.wasm" \
+  "$OUT/aegis_link_drop.wasm" \
   "$OUT/aegis_vault_delegate.wasm"
 
 echo "==> Building browser vault WASM (no Freenet)…"
@@ -33,6 +38,7 @@ mkdir -p "$UI_PUBLIC" "$UI_PUBLIC/browser-wasm"
 
 cp -f "$OUT/aegis_vault_delegate.wasm" "$UI_PUBLIC/aegis_vault_delegate.wasm"
 cp -f "$OUT/aegis_vault_sync.wasm" "$UI_PUBLIC/aegis_vault_sync.wasm"
+cp -f "$OUT/aegis_link_drop.wasm" "$UI_PUBLIC/aegis_link_drop.wasm"
 
 if command -v wasm-bindgen >/dev/null 2>&1; then
   wasm-bindgen --target web --out-dir "$UI_PUBLIC/browser-wasm" \
@@ -49,6 +55,9 @@ cargo run -q -p aegis-wasm-hash -- \
 cargo run -q -p aegis-wasm-hash -- \
   "$UI_PUBLIC/aegis_vault_sync.wasm" \
   > "$UI_PUBLIC/aegis_vault_sync.hash.json"
+cargo run -q -p aegis-wasm-hash -- \
+  "$UI_PUBLIC/aegis_link_drop.wasm" \
+  > "$UI_PUBLIC/aegis_link_drop.hash.json"
 
 # Delegate history manifest (D20): older delegates the UI may find a vault in.
 cp -f "$ROOT/delegates/vault-delegate/history.json" \

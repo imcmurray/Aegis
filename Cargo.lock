@@ -82,6 +82,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "aegis-link-drop"
+version = "2.0.0-rc.2"
+dependencies = [
+ "aegis-common",
+ "blake3",
+ "ciborium",
+ "ed25519-dalek",
+ "freenet-stdlib",
+ "serde",
+ "serde_bytes",
+]
+
+[[package]]
 name = "aegis-vault-delegate"
 version = "2.0.0-rc.2"
 dependencies = [

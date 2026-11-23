@@ -2,6 +2,7 @@
 members = [
     "common",
     "contracts/vault-sync",
+    "contracts/link-drop",
     "delegates/vault-delegate",
     "tools/dev-vault-server",
     "tools/wasm-hash",

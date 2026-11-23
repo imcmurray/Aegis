@@ -22,8 +22,10 @@ import {
   bytesToHex,
   encodeUpgradeSnapshot,
   decodeUpgradeSnapshot,
+  encodeLinkDropState,
+  decodeLinkDropState,
 } from "./cbor.ts";
-import type { UpgradeSnapshotV1 } from "./messages.ts";
+import type { LinkDropState, UpgradeSnapshotV1, VaultRequest, VaultResponse } from "./messages.ts";
 import {
   bs58Decode,
   delegateInstanceKey,
@@ -297,6 +299,111 @@ function toBytes(x: Uint8Array | number[]): Uint8Array {
     ),
     "15-byte vault_id must throw",
   );
+}
+
+// D21 link: the four new requests and four new responses round-trip, bytes intact.
+{
+  const bytes = (n: number, seed: number) => new Uint8Array(n).map((_, i) => (i * 7 + seed) & 0xff);
+  const state = bytes(40, 3);
+  const requests: VaultRequest[] = [
+    { op: "create_link_offer" },
+    { op: "sign_link_state", code: "AEGL-1234", seq: 3, kind: "tombstone" },
+    { op: "link_locate", code: "AEGL-1234" },
+    { op: "accept_link", code: "AEGL-1234", state, passphrase: "correct horse battery" },
+  ];
+  for (const req of requests) {
+    const back = decodeRequest(encodeRequest(req));
+    assert(back.op === req.op, `link request ${req.op} op`);
+    if (req.op === "accept_link" && back.op === "accept_link") {
+      assert(eqBytes(toBytes(back.state), state), "accept_link state bytes");
+      assert(back.code === req.code && back.passphrase === req.passphrase, "accept_link fields");
+    }
+    if (req.op === "sign_link_state" && back.op === "sign_link_state") {
+      assert(back.seq === 3 && back.kind === "tombstone" && back.code === req.code, "sign fields");
+    }
+    if (req.op === "link_locate" && back.op === "link_locate") {
+      assert(back.code === req.code, "link_locate code");
+    }
+    const env = decodeEnvelopeRequest(encodeEnvelopeRequest(req, null));
+    assert(env.req.op === req.op, `link request ${req.op} envelope`);
+  }
+  const responses: VaultResponse[] = [
+    { type: "link_offer", code: "AEGL-1234", params: bytes(20, 1), state, expires_at: 1700000600 },
+    { type: "link_state", state },
+    { type: "link_location", params: bytes(20, 9) },
+    { type: "linked", vault_id: "ab".repeat(16), device_id_hash: bytes(32, 5), ack_state: state },
+  ];
+  for (const resp of responses) {
+    const back = decodeResponse(encodeResponse(resp));
+    assert(back.type === resp.type, `link response ${resp.type}`);
+    if (resp.type === "link_offer" && back.type === "link_offer") {
+      assert(back.code === resp.code && back.expires_at === resp.expires_at, "offer scalars");
+      assert(back.params instanceof Uint8Array && eqBytes(toBytes(back.params), toBytes(resp.params)), "offer params");
+      assert(eqBytes(toBytes(back.state), state), "offer state");
+    }
+    if (resp.type === "link_state" && back.type === "link_state") {
+      assert(eqBytes(toBytes(back.state), state), "link_state bytes");
+    }
+    if (resp.type === "link_location" && back.type === "link_location") {
+      assert(eqBytes(toBytes(back.params), toBytes(resp.params)), "link_location params");
+    }
+    if (resp.type === "linked" && back.type === "linked") {
+      assert(back.vault_id === resp.vault_id, "linked vault_id");
+      assert(eqBytes(toBytes(back.device_id_hash), toBytes(resp.device_id_hash)), "linked hash");
+      assert(eqBytes(toBytes(back.ack_state), state), "linked ack_state");
+    }
+    const token = bytes(57, 2);
+    const env = decodeEnvelopeResponse(encodeEnvelopeResponse(resp, token));
+    assert(env.resp.type === resp.type, `link response ${resp.type} envelope`);
+    assert(env.token !== null && eqBytes(env.token, token), "envelope token");
+  }
+}
+
+// D21 link: link-drop state codec.
+{
+  const sig = new Uint8Array(64).map((_, i) => i);
+  const kinds: LinkDropState["kind"][] = ["offer", "ack", "tombstone"];
+  kinds.forEach((kind, i) => {
+    const s: LinkDropState = { seq: i + 1, kind, body: new Uint8Array([i, 9, 8]), sig };
+    const back = decodeLinkDropState(encodeLinkDropState(s));
+    assert(back.seq === s.seq && back.kind === kind, `state ${kind} scalars`);
+    assert(eqBytes(back.body, s.body) && eqBytes(back.sig, sig), `state ${kind} bytes`);
+  });
+  // A cbor-x map shaped like the Rust struct decodes.
+  const rustShaped = new Encoder({ useRecords: false, mapsAsObjects: true, structuredClone: false }).encode({
+    seq: 2,
+    kind: "ack",
+    body: new Uint8Array([1, 2, 3]),
+    sig,
+  });
+  const decoded = decodeLinkDropState(
+    rustShaped instanceof Uint8Array ? rustShaped : new Uint8Array(rustShaped),
+  );
+  assert(decoded.seq === 2 && decoded.kind === "ack", "rust-shaped state scalars");
+  assert(eqBytes(decoded.body, new Uint8Array([1, 2, 3])), "rust-shaped body");
+
+  const raw = (o: Record<string, unknown>): Uint8Array => {
+    const e = new Encoder({ useRecords: false, mapsAsObjects: true, structuredClone: false }).encode(o);
+    return e instanceof Uint8Array ? e : new Uint8Array(e);
+  };
+  const base = { seq: 1, kind: "offer", body: new Uint8Array(0), sig };
+  const throwsLink = (b: Uint8Array): boolean => {
+    try {
+      decodeLinkDropState(b);
+    } catch (e) {
+      return e instanceof Error && e.message === "invalid link state";
+    }
+    return false;
+  };
+  assert(throwsLink(raw({ ...base, kind: "weird" })), "unknown kind must throw");
+  assert(throwsLink(raw({ ...base, sig: new Uint8Array(63) })), "63-byte sig must throw");
+  const { sig: _s, ...noSig } = base;
+  void _s;
+  assert(throwsLink(raw(noSig)), "missing sig must throw");
+  assert(throwsLink(raw({ ...base, extra: 1 })), "extra field must throw");
+  assert(throwsLink(raw({ ...base, seq: 1.5 })), "non-integer seq must throw");
+  assert(throwsLink(raw({ ...base, seq: -1 })), "negative seq must throw");
+  assert(throwsLink(new Uint8Array([0xff, 0x00])), "garbage must throw");
 }
 
 // AC19: instance key derivation matches the committed hash JSON

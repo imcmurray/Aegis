@@ -440,6 +440,23 @@ Unlock of an existing envelope does not re-apply this policy.
 
 **Not changed.** Crypto suites, persisted record formats, the session token format, `IPC_VERSION` and the CLI protocol.
 
+### D21 — Link a device over Freenet (link code + link-drop contract)
+
+**Problem.** A second computer cannot join a v2 vault with only the passphrase: the sync identity comes from the random RootSecret, which lives only inside the passphrase-wrapped envelope. The only route was a Recovery Kit plus a backup file, which is heavy and easy to get wrong.
+
+**Design.**
+
+- **Link code.** Device A (unlocked, Freenet mode, session resumed from a token, `WebApp` origin) calls `CreateLinkOffer`. The delegate draws a 20-byte `LinkSecret` from the host RNG and displays it as `AEGL-` + Crockford Base32 (32 chars) + a 2-char checksum (top 10 bits of SHA-256, as for `AEGIS2-` secrets), grouped in 4s. It is valid for 10 minutes.
+- **Keys.** `HKDF-SHA256(salt = "aegis/v2/link", ikm = secret)` expands `aegis/v2/link/sign` to an Ed25519 seed and `aegis/v2/link/key` to an XChaCha20-Poly1305 key. Both labels are distinct from every label in `hkdf_v2`. The contract parameters are `LinkDropParams{app: "AEGIS_LINK_V1", ed25519_vk}` (deterministic CBOR), so both devices derive the same contract instance id `blake3(code_hash || params)` from the code alone.
+- **Offer.** The payload `{v, vault_id, key_epoch, created_at, expires_at, records}` carries only `SECRET_ENVELOPE_V2`, `SECRET_VAULT_V2`, `SECRET_RECOVERY_V2` and `SECRET_SYNC_TRANSITION_V2` (already passphrase-wrapped or DEK-sealed). It is sealed with the link key (AAD = `AEGIS_LINK_V1 || params`) and published as a signed `LinkDropState` (`seq`, `kind`, `body`, `sig`). The signature covers `"AEGIS_LINK_V1" || u32_be(len params) || params || u64_be(seq) || u8(len kind) || kind || body` and is checked with `verify_strict`.
+- **Contract.** `aegis-link-drop` validates signatures only and merges to the maximum under `(seq, kind_rank, body, sig)`, which is commutative, associative and idempotent. Standard sequence: offer (seq 1) → ack (seq 2) → tombstone (seq 3). Bodies are capped (offer 4 MiB, ack / tombstone 256 bytes) and the encoded state is size-checked before CBOR parsing.
+- **Accept.** Device B (empty delegate, `WebApp` origin) sends `AcceptLink{code, state, passphrase}`. The delegate verifies the state against params derived from the code, rejects ack / tombstone states as used, decrypts and strictly decodes the payload, checks the expiry and the record headers, then unwraps the root from the received envelope with the master passphrase. `install_linked_v2` writes the same vault_id, key_epoch, entries and sync identity with a **new `device_id`** and a fresh audit log in one `store.commit`. There is no store write before that commit, and a wrong passphrase writes nothing. Argon2 on the passphrase is the only gate against code guessing.
+- **Cleanup.** B publishes an ack; A sees it and publishes a tombstone (`SignLinkState`). Cancel, expiry and closing Settings also publish a tombstone (best effort). Freenet cannot delete: the tombstone replaces the ciphertext on hosting nodes. A cached offer is useless without the code, and the records inside are still passphrase-wrapped or DEK-sealed.
+- **Guards.** `CreateLinkOffer` / `SignLinkState` are honoured only inside the IPC envelope with a token-resumed session and a `WebApp` origin; every refusal is `Locked` / "vault is locked". `AcceptLink` needs a `WebApp` origin and no vault at all (`InvalidRequest` / "link not permitted"). `LinkLocate` is pure and allowed everywhere. A's vault is never written by any link op. If two devices accept before the tombstone lands, both succeed with their own device ids; each holds the code and the passphrase.
+- **Never in a payload:** the root, any DEK, K_s, v1 keys, audit, sync state / accepted / counter. The Recovery Kit stays the disaster-recovery path.
+
+**Not changed.** Crypto suites, persisted record formats, the session token format, `IPC_VERSION`, `IpcRequest` / `IpcResponse`, `ErrorCode`, `contracts/vault-sync` and the CLI protocol. The delegate WASM hash changes.
+
 ### Phase 2 / PR D (2026-09-06) — Core suite + envelopes
 
 Landed in `common/src/crypto/`. **Not** wired into `VaultSession::create` or import (Phase 5).

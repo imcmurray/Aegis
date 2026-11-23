@@ -6,6 +6,7 @@ Crypto suites, wire formats and the CLI protocol (`1`) are unchanged.
 
 ### Added
 
+- Link a second device over Freenet with a one-time link code (D21). Settings → **Link a device** creates a 10-minute `AEGL-…` code (with a QR); on the new computer, **Link this device** takes the code and the master passphrase and joins the same vault (same vault ID, entries and sync identity, its own device ID), with no Recovery Kit or files. Adds the `aegis-link-drop` contract (`aegis_link_drop.wasm`, built and staged by `scripts/build-wasm.sh`), the `CreateLinkOffer` / `SignLinkState` / `LinkLocate` / `AcceptLink` ops, and the `qrcode-generator` UI dependency. Freenet cannot delete, so a used or cancelled code is replaced by a tombstone. Crypto suites, persisted formats, the session token and the CLI protocol are unchanged; the delegate WASM hash changes. The Recovery Kit stays the disaster-recovery path.
 - Freenet delegate upgrade path (D20). A committed history manifest (`delegates/vault-delegate/history.json`) lists earlier vault delegates. When the current delegate has no vault, the UI finds one under an earlier delegate and offers "Upgrade your vault"; after the passphrase it moves the vault over. Delegates with the new `ExportForUpgrade` op keep the vault identity; older ones (such as the live `Br4Y…` build) move through an encrypted backup and the vault gets a new sync identity. Adds `ExportForUpgrade` / `ImportUpgradeSnapshot` (envelope-only). Crypto, persisted formats and the CLI protocol are unchanged; the delegate WASM hash changes.
 
 ### Changed

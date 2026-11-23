@@ -195,6 +195,26 @@ pub enum VaultRequest {
         #[serde(with = "serde_bytes")]
         snapshot: Vec<u8>,
     },
+    /// Link a device (D21), device A: mint a one-time link code and a sealed,
+    /// signed offer. Honoured only inside the IPC envelope with a valid WebApp token.
+    CreateLinkOffer {},
+    /// Link a device (D21), device A: sign a tombstone (or other small state) for a code.
+    SignLinkState {
+        code: String,
+        seq: u64,
+        kind: String,
+    },
+    /// Link a device (D21): derive the contract parameters from a code (pure).
+    LinkLocate {
+        code: String,
+    },
+    /// Link a device (D21), device B: install a vault from a fetched offer.
+    AcceptLink {
+        code: String,
+        #[serde(with = "serde_bytes")]
+        state: Vec<u8>,
+        passphrase: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -316,6 +336,33 @@ pub enum VaultResponse {
     UpgradeSnapshot {
         #[serde(with = "serde_bytes")]
         snapshot: Vec<u8>,
+    },
+    /// Link offer (D21): code shown once, contract params and the signed offer state.
+    LinkOffer {
+        code: String,
+        #[serde(with = "serde_bytes")]
+        params: Vec<u8>,
+        #[serde(with = "serde_bytes")]
+        state: Vec<u8>,
+        expires_at: u64,
+    },
+    /// A signed link-drop state (D21).
+    LinkState {
+        #[serde(with = "serde_bytes")]
+        state: Vec<u8>,
+    },
+    /// Link-drop contract parameters derived from a code (D21).
+    LinkLocation {
+        #[serde(with = "serde_bytes")]
+        params: Vec<u8>,
+    },
+    /// Device B linked (D21). `ack_state` is the signed acknowledgement to publish.
+    Linked {
+        vault_id: String,
+        #[serde(with = "serde_bytes")]
+        device_id_hash: Vec<u8>,
+        #[serde(with = "serde_bytes")]
+        ack_state: Vec<u8>,
     },
     Error {
         code: ErrorCode,
@@ -445,6 +492,29 @@ mod tests {
                     snapshot: vec![1, 2, 3],
                 },
             ),
+            ("create_link_offer", VaultRequest::CreateLinkOffer {}),
+            (
+                "sign_link_state",
+                VaultRequest::SignLinkState {
+                    code: "AEGL-X".into(),
+                    seq: 3,
+                    kind: "tombstone".into(),
+                },
+            ),
+            (
+                "link_locate",
+                VaultRequest::LinkLocate {
+                    code: "AEGL-X".into(),
+                },
+            ),
+            (
+                "accept_link",
+                VaultRequest::AcceptLink {
+                    code: "AEGL-X".into(),
+                    state: vec![4, 5, 6],
+                    passphrase: "pw".into(),
+                },
+            ),
             (
                 "generate_password",
                 VaultRequest::GeneratePassword {
@@ -498,6 +568,19 @@ mod tests {
             VaultResponse::UpgradeSnapshot {
                 snapshot: vec![9, 8, 7],
             },
+            VaultResponse::LinkOffer {
+                code: "AEGL-X".into(),
+                params: vec![1, 2],
+                state: vec![3, 4],
+                expires_at: 600,
+            },
+            VaultResponse::LinkState { state: vec![5, 6] },
+            VaultResponse::LinkLocation { params: vec![7, 8] },
+            VaultResponse::Linked {
+                vault_id: "vid".into(),
+                device_id_hash: vec![9; 32],
+                ack_state: vec![1, 1],
+            },
         ];
         for resp in resp_cases {
             let bytes = resp.to_cbor().unwrap();
@@ -512,6 +595,15 @@ mod tests {
         assert_eq!(
             hex::encode(bytes),
             "a1626f70726578706f72745f666f725f75706772616465"
+        );
+    }
+
+    #[test]
+    fn create_link_offer_golden() {
+        let bytes = VaultRequest::CreateLinkOffer {}.to_cbor().unwrap();
+        assert_eq!(
+            hex::encode(bytes),
+            "a1626f70716372656174655f6c696e6b5f6f66666572"
         );
     }
 

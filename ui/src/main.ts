@@ -1,5 +1,8 @@
+import qrcode from "qrcode-generator";
+import { decodeLinkDropState } from "./cbor";
 import { freenetShellDownload, inFreenetWebContainer } from "./freenetBridge";
 import { createVaultClient, type UpgradeSource, type VaultClient } from "./client";
+import { getLinkDropState, publishLinkDropState } from "./linkDrop";
 import {
   CLIPBOARD_CLEAR_SECONDS,
   defaultGeneratorPolicy,
@@ -43,6 +46,8 @@ let needsMigration = false;
 let migrationRecoverySecret: string | null = null;
 /** Set after a legacy delegate upgrade: the vault now has a new sync identity. */
 let upgradeIdentityNotice = false;
+/** Set once after this device was linked to an existing vault (D21). */
+let linkedNotice = false;
 
 async function refreshPeerProbe(force = false) {
   peerProbe = await probeFreenetPeer({ force });
@@ -506,6 +511,21 @@ async function render() {
     banner.append(el("div", { class: "banner-actions" }, [dismissNotice]));
     app.append(banner);
   }
+  if (linkedNotice) {
+    linkedNotice = false;
+    const banner = el("div", { class: "banner" });
+    banner.append(
+      el("div", {}, [
+        el("span", {
+          text: "This device is linked. Press Sync to pull the latest changes.",
+        }),
+      ]),
+    );
+    const dismissLinked = el("button", { text: "Dismiss" }) as HTMLButtonElement;
+    dismissLinked.addEventListener("click", () => banner.remove());
+    banner.append(el("div", { class: "banner-actions" }, [dismissLinked]));
+    app.append(banner);
+  }
   if (unlockedViaRecovery) {
     const banner = el("div", { class: "banner banner-warn" });
     banner.append(
@@ -761,7 +781,434 @@ function renderCreate() {
   );
   mountRecoveryKitImportForm(recoverCard, { mode: "empty" });
 
+  // D21: Freenet only. A second device joins an existing vault with a link code.
+  if (isFreenetMode()) app.append(buildLinkThisDeviceCard());
   app.append(card, importCard, recoverCard);
+}
+
+/** Why mesh features are unavailable (same wording as the Sync button). */
+function meshPeerHint(c: ReturnType<typeof caps>): string {
+  return c.blocked
+    ? "Freenet peer blocked from this page (HTTPS). Open via local peer HTTP."
+    : "Freenet peer offline — start `freenet local` to Sync on the mesh.";
+}
+
+/** Device B (D21): enter the link code + master passphrase to join an existing vault. */
+function buildLinkThisDeviceCard(): HTMLElement {
+  const card = el("div", { class: "card link-card" });
+  card.append(el("h2", { text: "Link this device" }));
+
+  const codeIn = el("input", {
+    type: "text",
+    id: "link-code",
+    autocomplete: "off",
+    spellcheck: "false",
+    autocapitalize: "characters",
+    placeholder: "Link code (AEGL-…)",
+  }) as HTMLInputElement;
+  const pw = el("input", {
+    type: "password",
+    id: "link-pw",
+    autocomplete: "current-password",
+    placeholder: "Master passphrase",
+  }) as HTMLInputElement;
+  const btn = el("button", { class: "primary", text: "Link" }) as HTMLButtonElement;
+  const busy = el("div", { class: "busy-row hidden", role: "status", "aria-live": "polite" });
+  const busyText = el("span", {});
+  busy.append(el("span", { class: "spinner", "aria-hidden": "true" }), busyText);
+
+  const c0 = caps();
+  const peerReady = Boolean(client.freenetApi) && c0.canMeshSync;
+  if (!peerReady) {
+    btn.disabled = true;
+    btn.classList.add("btn-disabled");
+  }
+
+  let linking = false;
+  const run = async () => {
+    if (linking || btn.disabled) return;
+    setError(card, null);
+    const code = codeIn.value.trim();
+    if (!code) {
+      setError(card, "Enter the link code shown on your other device.");
+      return;
+    }
+    if (!pw.value) {
+      setError(card, "Enter your master passphrase.");
+      return;
+    }
+    const api = client.freenetApi;
+    if (!api) {
+      setError(card, "Not connected to a Freenet peer.");
+      return;
+    }
+    linking = true;
+    btn.disabled = true;
+    const started = Date.now();
+    let phase = "Looking for the link on the Freenet network…";
+    const tick = () => {
+      const secs = Math.floor((Date.now() - started) / 1000);
+      busyText.textContent = ` ${phase} ${secs}s`;
+    };
+    const showBusy = (text: string) => {
+      phase = text;
+      busy.classList.remove("hidden");
+      tick();
+    };
+    const ticker = window.setInterval(tick, 1000);
+    const finish = (message: string | null) => {
+      window.clearInterval(ticker);
+      busy.classList.add("hidden");
+      linking = false;
+      btn.disabled = false;
+      if (message) setError(card, message);
+    };
+    try {
+      const loc = await client.request({ op: "link_locate", code });
+      if (loc.type === "error") return finish(loc.message);
+      if (loc.type !== "link_location") return finish("Linking failed.");
+      const params = toBytes(loc.params);
+
+      showBusy("Looking for the link on the Freenet network…");
+      const found = await getLinkDropState(api, params);
+      if (!found.found || found.state.length === 0) {
+        return finish(
+          "Link not found yet. Keep Aegis open on the other device and try again in a moment.",
+        );
+      }
+
+      showBusy("Linking this device…");
+      const resp = await client.request({
+        op: "accept_link",
+        code,
+        state: found.state,
+        passphrase: takePassword(pw),
+      });
+      if (resp.type === "error") {
+        return finish(
+          resp.code === "auth_failed"
+            ? "Wrong passphrase. Use the master passphrase of the vault on your other device."
+            : resp.message,
+        );
+      }
+      if (resp.type !== "linked") return finish("Linking failed.");
+
+      // Tell device A (best effort): a failed ack only means A waits for expiry.
+      try {
+        showBusy("Telling your other device…");
+        await publishLinkDropState(api, params, toBytes(resp.ack_state), { exists: true });
+      } catch {
+        /* non-fatal */
+      }
+      window.clearInterval(ticker);
+      codeIn.value = "";
+      linkedNotice = true;
+      unlocked = true;
+      await render();
+    } catch (e) {
+      finish(e instanceof Error ? e.message : "Linking failed.");
+    }
+  };
+  btn.addEventListener("click", () => void run());
+  for (const input of [codeIn, pw]) {
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        void run();
+      }
+    });
+  }
+
+  card.append(el("label", { text: "Link code", for: "link-code" }), codeIn);
+  card.append(el("label", { text: "Master passphrase", for: "link-pw" }), pw);
+  card.append(btn, busy);
+  card.append(
+    el("p", {
+      class: "hint",
+      text: "Create a link code on your other device: Settings → Link a device.",
+    }),
+  );
+  if (!peerReady) card.append(el("p", { class: "hint", text: meshPeerHint(c0) }));
+  return card;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** QR as SVG elements only (no inline style, no innerHTML): CSP `style-src 'self'` safe. */
+function buildQrSvg(text: string): SVGSVGElement {
+  const qr = qrcode(0, "M");
+  qr.addData(text);
+  qr.make();
+  const n = qr.getModuleCount();
+  const quiet = 4;
+  const size = n + quiet * 2;
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", "link-qr");
+  svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "QR code of the link code");
+  svg.setAttribute("shape-rendering", "crispEdges");
+  const bg = document.createElementNS(SVG_NS, "rect");
+  bg.setAttribute("class", "link-qr-bg");
+  bg.setAttribute("x", "0");
+  bg.setAttribute("y", "0");
+  bg.setAttribute("width", String(size));
+  bg.setAttribute("height", String(size));
+  svg.append(bg);
+  for (let r = 0; r < n; r++) {
+    for (let col = 0; col < n; col++) {
+      if (!qr.isDark(r, col)) continue;
+      const rect = document.createElementNS(SVG_NS, "rect");
+      rect.setAttribute("class", "link-qr-dark");
+      rect.setAttribute("x", String(col + quiet));
+      rect.setAttribute("y", String(r + quiet));
+      rect.setAttribute("width", "1");
+      rect.setAttribute("height", "1");
+      svg.append(rect);
+    }
+  }
+  return svg;
+}
+
+/**
+ * Device A (D21): the "Link a device" Settings section. The link code lives only
+ * in this closure and the DOM of the live view. It is never logged, stored, or
+ * put in an Error message, and is removed from the DOM when the view closes.
+ * `closeHooks` runs when Settings closes (counts as Cancel).
+ */
+function mountLinkDeviceSection(body: HTMLElement, closeHooks: (() => void)[]) {
+  if (!isFreenetMode()) {
+    body.append(el("p", { class: "hint", text: "Linking a device needs Freenet mode." }));
+    return;
+  }
+  body.append(
+    el("p", {
+      class: "hint",
+      text: "Create a one-time code (valid for 10 minutes). On the new computer choose “Link this device” and enter the code with your master passphrase.",
+    }),
+  );
+  const c = caps();
+  const api = client.freenetApi;
+  const peerReady = Boolean(api) && c.canMeshSync;
+  const createBtn = el("button", { class: "primary", text: "Create link code" }) as HTMLButtonElement;
+  const view = el("div", { class: "link-view", "aria-live": "polite" });
+  body.append(createBtn, view);
+  if (!peerReady) {
+    createBtn.disabled = true;
+    createBtn.classList.add("btn-disabled");
+    body.append(el("p", { class: "hint", text: meshPeerHint(c) }));
+  }
+
+  let active = false;
+  let stopLive: ((why: "cancel" | "closed") => Promise<void>) | null = null;
+  closeHooks.push(() => {
+    if (stopLive) void stopLive("closed");
+  });
+
+  const note = (text: string) => {
+    view.replaceChildren(el("p", { class: "link-note", text }));
+  };
+
+  createBtn.addEventListener("click", () => {
+    if (active || !api) return;
+    active = true;
+    createBtn.disabled = true;
+    void (async () => {
+      let code = "";
+      let params: Uint8Array = new Uint8Array(0);
+      let published = false;
+      let done = false;
+      let polling = false;
+      let closedEarly = false;
+      let pollTimer: number | null = null;
+      let tickTimer: number | null = null;
+
+      const stopTimers = () => {
+        if (pollTimer !== null) window.clearInterval(pollTimer);
+        if (tickTimer !== null) window.clearInterval(tickTimer);
+        pollTimer = null;
+        tickTimer = null;
+      };
+
+      /** Best effort: replace the offer with a tombstone. Never throws. */
+      const tombstone = async (): Promise<boolean> => {
+        if (!published) return true;
+        try {
+          const s = await client.request({
+            op: "sign_link_state",
+            code,
+            seq: 3,
+            kind: "tombstone",
+          });
+          if (s.type !== "link_state") return false;
+          await publishLinkDropState(api, params, toBytes(s.state), { exists: true });
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      const end = (message: string | null) => {
+        done = true;
+        stopTimers();
+        code = "";
+        stopLive = null;
+        if (message) note(message);
+        else view.replaceChildren();
+        active = false;
+        createBtn.disabled = !peerReady;
+      };
+
+      const finish = async (
+        why: "cancel" | "closed" | "expired" | "ack" | "tombstoned",
+      ): Promise<void> => {
+        if (done) return;
+        done = true;
+        stopTimers();
+        if (why === "closed") {
+          // Settings is going away: drop the code from the DOM now, tombstone after.
+          view.replaceChildren();
+        }
+        if (why === "tombstoned") {
+          end("This link code was cancelled.");
+          return;
+        }
+        if (why === "ack") {
+          note("Linked a new device.");
+        }
+        const ok = await tombstone();
+        if (why === "expired") end("Link code expired. Create a new one if you still need it.");
+        else if (why === "ack") end("Linked a new device.");
+        else if (why === "closed") end(null);
+        else end(ok ? "This link code was cancelled." : "The code will expire on its own.");
+      };
+
+      stopLive = async (why) => {
+        if (published) {
+          await finish(why);
+        } else {
+          // Still publishing: finish as soon as the offer is out.
+          closedEarly = true;
+        }
+      };
+
+      // 1) Mint the offer.
+      const started = Date.now();
+      const label = el("span", {});
+      const tickPublishing = () => {
+        const secs = Math.floor((Date.now() - started) / 1000);
+        label.textContent =
+          secs < 5
+            ? " Creating link code…"
+            : ` Publishing the link code… ${secs}s (this can take a minute or two)`;
+      };
+      view.replaceChildren(
+        el("div", { class: "busy-row", role: "status" }, [
+          el("span", { class: "spinner", "aria-hidden": "true" }),
+          label,
+        ]),
+      );
+      tickPublishing();
+      const publishTicker = window.setInterval(tickPublishing, 1000);
+
+      let offerExpires = 0;
+      let offerState: Uint8Array = new Uint8Array(0);
+      try {
+        const resp = await client.request({ op: "create_link_offer" });
+        if (resp.type === "error") {
+          window.clearInterval(publishTicker);
+          end(resp.message);
+          return;
+        }
+        if (resp.type !== "link_offer") {
+          window.clearInterval(publishTicker);
+          end("Could not create a link code.");
+          return;
+        }
+        code = resp.code;
+        params = toBytes(resp.params);
+        offerState = toBytes(resp.state);
+        offerExpires = resp.expires_at;
+        await publishLinkDropState(api, params, offerState, { exists: false });
+        published = true;
+      } catch {
+        window.clearInterval(publishTicker);
+        end("Could not publish the link code to the Freenet network. Try again.");
+        return;
+      }
+      window.clearInterval(publishTicker);
+      offerState = new Uint8Array(0);
+
+      if (closedEarly) {
+        await finish("closed");
+        return;
+      }
+
+      // 2) Show the live code.
+      const codeBox = el("div", { class: "link-code", "aria-label": "Link code" });
+      for (const g of code.split("-")) {
+        codeBox.append(el("span", { class: "link-code-group", text: g }));
+      }
+      const qrWrap = el("div", { class: "link-qr-wrap" });
+      try {
+        qrWrap.append(buildQrSvg(code));
+      } catch {
+        /* QR is a convenience: the code is also shown as text */
+      }
+      const countdown = el("p", { class: "link-countdown" });
+      const waiting = el("div", { class: "link-waiting" }, [
+        el("span", { class: "spinner", "aria-hidden": "true" }),
+        el("span", { text: "Waiting for the new device…" }),
+      ]);
+      const cancelBtn = el("button", { text: "Cancel" }) as HTMLButtonElement;
+      cancelBtn.addEventListener("click", () => {
+        cancelBtn.disabled = true;
+        void finish("cancel");
+      });
+      view.replaceChildren(codeBox, qrWrap, countdown, waiting, cancelBtn);
+
+      const tickCountdown = () => {
+        const left = offerExpires - Math.floor(Date.now() / 1000);
+        if (left <= 0) {
+          void finish("expired");
+          return;
+        }
+        const m = Math.floor(left / 60);
+        const s = String(left % 60).padStart(2, "0");
+        countdown.textContent = `Expires in ${m}:${s}`;
+      };
+      tickCountdown();
+      if (done) return;
+      tickTimer = window.setInterval(tickCountdown, 1000);
+
+      // 3) Poll the contract (never overlapping) for the ack.
+      const poll = async () => {
+        if (done || polling) return;
+        polling = true;
+        try {
+          const r = await getLinkDropState(api, params);
+          if (done || !r.found || r.state.length === 0) return;
+          let kind: string | null = null;
+          try {
+            kind = decodeLinkDropState(r.state).kind;
+          } catch {
+            kind = null;
+          }
+          if (kind === "ack") await finish("ack");
+          else if (kind === "tombstone") await finish("tombstoned");
+        } catch {
+          /* keep waiting */
+        } finally {
+          polling = false;
+        }
+      };
+      pollTimer = window.setInterval(() => void poll(), 5000);
+    })().catch(() => {
+      // Defence in depth: no unhandled rejection from the link view.
+      active = false;
+      createBtn.disabled = !peerReady;
+    });
+  });
 }
 
 function formatPreviewTs(ts: number | null | undefined): string {
@@ -2835,8 +3282,10 @@ function showHealthModal(
 
 function showSettingsModal(
   onSaved: () => void,
-  openSection: "autolock" | "passphrase" | "recovery" | "multidevice" = "autolock",
+  openSection: "autolock" | "passphrase" | "recovery" | "multidevice" | "link" = "autolock",
 ) {
+  /** Run when Settings closes by any route (the overlay leaves the document). */
+  const closeHooks: (() => void)[] = [];
   const overlay = el("div", { class: "modal-overlay" });
   const modal = el("div", { class: "modal card" });
   modal.append(el("h2", { text: "Settings" }));
@@ -3054,6 +3503,14 @@ function showSettingsModal(
         }),
       );
     },
+  );
+
+  // —— Link a device (D21) ——
+  addSection(
+    "link",
+    "Link a device",
+    isFreenetMode() ? "One-time code" : "Needs Freenet mode",
+    (body) => mountLinkDeviceSection(body, closeHooks),
   );
 
   // —— Auto-lock ——
@@ -3462,6 +3919,14 @@ function showSettingsModal(
     if (e.target === overlay) overlay.remove();
   });
   document.body.append(overlay);
+
+  // Closing Settings (Close, backdrop, re-open, Sync now...) ends a live link code.
+  const watcher = new MutationObserver(() => {
+    if (overlay.isConnected) return;
+    watcher.disconnect();
+    for (const hook of closeHooks) hook();
+  });
+  watcher.observe(document.body, { childList: true });
 }
 
 function statusNote(modal: HTMLElement, text: string) {

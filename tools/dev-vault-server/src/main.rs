@@ -232,6 +232,10 @@ async fn vault(State(state): State<Shared>, body: Bytes) -> Response {
         VaultRequest::OpenShare { .. } => "open_share",
         VaultRequest::ExportForUpgrade {} => "export_for_upgrade",
         VaultRequest::ImportUpgradeSnapshot { .. } => "import_upgrade_snapshot",
+        VaultRequest::CreateLinkOffer {} => "create_link_offer",
+        VaultRequest::SignLinkState { .. } => "sign_link_state",
+        VaultRequest::LinkLocate { .. } => "link_locate",
+        VaultRequest::AcceptLink { .. } => "accept_link",
     };
     tracing::info!(op, "vault request");
 

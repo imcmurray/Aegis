@@ -6,6 +6,7 @@ pub mod delegate_session;
 pub mod file_store;
 pub mod gen_store;
 pub mod health;
+pub mod link;
 pub mod messages;
 pub mod migrate;
 pub mod recovery_v2;
@@ -72,3 +73,7 @@ mod delegate_session_tests;
 #[cfg(test)]
 #[path = "../tests/delegate_upgrade.rs"]
 mod delegate_upgrade_tests;
+
+#[cfg(test)]
+#[path = "../tests/delegate_link.rs"]
+mod delegate_link_tests;

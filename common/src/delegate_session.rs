@@ -341,6 +341,35 @@ fn handle_import_upgrade_snapshot(
     }
 }
 
+/// D21 accept: only for a WebApp origin into a store with no vault at all.
+/// On success the unlocked session is established (the caller rotates K_s and
+/// issues a token).
+fn handle_accept_link(
+    store: &mut dyn SecretStore,
+    session: &mut Option<ActiveSession>,
+    origin: &SessionOrigin,
+    now: u64,
+    code: &str,
+    state: &[u8],
+    passphrase: &str,
+) -> VaultResponse {
+    if !matches!(origin, SessionOrigin::WebApp(_)) {
+        return VaultResponse::err(ErrorCode::InvalidRequest, crate::link::ERR_LINK_NOT_PERMITTED);
+    }
+    match crate::link::accept_link(store, code, state, passphrase, now) {
+        Ok(acc) => {
+            let vault_id = acc.session.doc.meta.vault_id.clone();
+            *session = Some(ActiveSession::V2(acc.session));
+            VaultResponse::Linked {
+                vault_id,
+                device_id_hash: acc.device_id_hash.to_vec(),
+                ack_state: acc.ack_state,
+            }
+        }
+        Err(resp) => resp,
+    }
+}
+
 /// Entry point used by the delegate. Accepts either an IpcRequest envelope or
 /// a bare VaultRequest (legacy). Returns the CBOR bytes to send back.
 /// Err only when the payload is not decodable CBOR of either shape.
@@ -367,9 +396,12 @@ pub fn process_message(
         // Legacy bare VaultRequest: identical to the pre-token behaviour.
         let req =
             VaultRequest::from_cbor(payload).map_err(|_| "invalid request encoding".to_string())?;
+        let is_accept = matches!(req, VaultRequest::AcceptLink { .. });
         let mut session = None;
         let resp = dispatch(store, &mut session, req);
-        cleanup_v1_session_key(store, &session);
+        if !(is_accept && matches!(resp, VaultResponse::Error { .. })) {
+            cleanup_v1_session_key(store, &session);
+        }
         return resp.to_cbor();
     };
 
@@ -405,9 +437,38 @@ pub fn process_message(
             | VaultRequest::ImportRecoveryKit { .. }
             | VaultRequest::MigrateVault { .. }
             | VaultRequest::MigrateVaultWithRecovery { .. }
+            | VaultRequest::AcceptLink { .. }
+    );
+
+    let is_accept = matches!(req, VaultRequest::AcceptLink { .. });
+    let is_link_auth_op = matches!(
+        req,
+        VaultRequest::CreateLinkOffer {} | VaultRequest::SignLinkState { .. }
     );
 
     let resp = match req {
+        VaultRequest::CreateLinkOffer {} => crate::link::handle_create_link_offer(
+            &*store,
+            &session,
+            started_some,
+            origin,
+            now,
+            &mut *rng,
+        ),
+        VaultRequest::SignLinkState { code, seq, kind } => crate::link::handle_sign_link_state(
+            &session,
+            started_some,
+            origin,
+            now,
+            &code,
+            seq,
+            &kind,
+        ),
+        VaultRequest::AcceptLink {
+            code,
+            state,
+            passphrase,
+        } => handle_accept_link(store, &mut session, origin, now, &code, &state, &passphrase),
         VaultRequest::ExportForUpgrade {} => {
             handle_export_for_upgrade(&*store, &session, started_some, origin)
         }
@@ -416,7 +477,10 @@ pub fn process_message(
         }
         req => dispatch(store, &mut session, req),
     };
-    cleanup_v1_session_key(store, &session);
+    // A refused AcceptLink makes no writes at all (D21 behaviour 25).
+    if !(is_accept && matches!(resp, VaultResponse::Error { .. })) {
+        cleanup_v1_session_key(store, &session);
+    }
 
     let established = establishing
         && !matches!(resp, VaultResponse::Error { .. })
@@ -430,8 +494,19 @@ pub fn process_message(
         issued_at = now;
     }
 
+    // An auth refusal of a link op (Locked) never carries a token.
+    let link_refused = is_link_auth_op
+        && matches!(
+            resp,
+            VaultResponse::Error {
+                code: ErrorCode::Locked,
+                ..
+            }
+        );
     let new_token = match &session {
-        Some(ActiveSession::V2(s)) => issue_token(&*store, s, issued_at, now, origin, &mut *rng),
+        Some(ActiveSession::V2(s)) if !link_refused => {
+            issue_token(&*store, s, issued_at, now, origin, &mut *rng)
+        }
         _ => None,
     };
 

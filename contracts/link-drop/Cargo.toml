@@ -1,0 +1,25 @@
+[package]
+name = "aegis-link-drop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Aegis link-a-device drop contract (sealed one-time offer, ack, tombstone)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Enable when building the contract WASM for Freenet (`--features freenet-main-contract`).
+freenet-main-contract = []
+# Optional: freenet-macros injects `cfg(feature = "trace")` for stdlib tracing.
+trace = []
+
+[dependencies]
+aegis-common = { workspace = true, features = ["freenet-host"] }
+ciborium = { workspace = true }
+serde = { workspace = true }
+serde_bytes = { workspace = true }
+ed25519-dalek = { workspace = true }
+blake3 = { workspace = true }
+freenet-stdlib = { workspace = true, features = ["contract"] }

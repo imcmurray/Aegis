@@ -28,6 +28,10 @@ cp -f "$ROOT/ui/public/aegis_vault_delegate.hash.json" "$OUT/wasm/"
 cargo run -q -p aegis-wasm-hash -- \
   "$OUT/wasm/aegis_vault_sync.wasm" \
   > "$OUT/wasm/aegis_vault_sync.hash.json"
+cp -f "$ROOT/ui/public/aegis_link_drop.wasm" "$OUT/wasm/"
+cargo run -q -p aegis-wasm-hash -- \
+  "$OUT/wasm/aegis_link_drop.wasm" \
+  > "$OUT/wasm/aegis_link_drop.hash.json"
 
 # Vite already copies public/ into dist/; ensure browser-wasm + freenet wasm present
 cp -a "$ROOT/ui/dist/." "$OUT/ui/"
@@ -72,7 +76,8 @@ cat > "$OUT/MANIFEST.json" <<EOF
     "ui": "ui/",
     "browser_wasm": "ui/browser-wasm/",
     "vault_delegate_wasm": "wasm/aegis_vault_delegate.wasm",
-    "vault_sync_wasm": "wasm/aegis_vault_sync.wasm"
+    "vault_sync_wasm": "wasm/aegis_vault_sync.wasm",
+    "link_drop_wasm": "wasm/aegis_link_drop.wasm"
   },
   "access": [
     "Serve ui/ on any static host (GitHub Pages) — mode=browser by default",

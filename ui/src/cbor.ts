@@ -7,6 +7,7 @@ import { Decoder, Encoder } from "cbor-x";
 import type {
   DelegateRequestEnvelope,
   DelegateResponseEnvelope,
+  LinkDropState,
   UpgradeSnapshotV1,
   VaultRequest,
   VaultResponse,
@@ -280,6 +281,24 @@ function requestToPlain(req: VaultRequest): Record<string, unknown> {
             ? req.snapshot
             : new Uint8Array(req.snapshot),
       };
+    case "create_link_offer":
+      return { op: "create_link_offer" };
+    case "sign_link_state":
+      return {
+        op: "sign_link_state",
+        code: req.code,
+        seq: req.seq,
+        kind: req.kind,
+      };
+    case "link_locate":
+      return { op: "link_locate", code: req.code };
+    case "accept_link":
+      return {
+        op: "accept_link",
+        code: req.code,
+        state: toU8(req.state),
+        passphrase: req.passphrase,
+      };
     default: {
       const _exhaustive: never = req;
       throw new Error(`unknown request: ${JSON.stringify(_exhaustive)}`);
@@ -450,6 +469,24 @@ function plainToRequest(obj: Record<string, unknown>): VaultRequest {
         op: "import_upgrade_snapshot",
         snapshot: new Uint8Array(bytesField(obj.snapshot)),
       };
+    case "create_link_offer":
+      return { op: "create_link_offer" };
+    case "sign_link_state":
+      return {
+        op: "sign_link_state",
+        code: String(obj.code ?? ""),
+        seq: Number(obj.seq ?? 0),
+        kind: String(obj.kind ?? "") as "tombstone",
+      };
+    case "link_locate":
+      return { op: "link_locate", code: String(obj.code ?? "") };
+    case "accept_link":
+      return {
+        op: "accept_link",
+        code: String(obj.code ?? ""),
+        state: new Uint8Array(bytesField(obj.state)),
+        passphrase: String(obj.passphrase ?? ""),
+      };
     default:
       throw new Error(`unknown request op: ${op}`);
   }
@@ -551,6 +588,25 @@ function responseToPlain(resp: VaultResponse): Record<string, unknown> {
           : new Uint8Array(resp.snapshot as number[]);
       return { type: "upgrade_snapshot", snapshot };
     }
+    case "link_offer":
+      return {
+        type: "link_offer",
+        code: resp.code,
+        params: toU8(resp.params),
+        state: toU8(resp.state),
+        expires_at: resp.expires_at,
+      };
+    case "link_state":
+      return { type: "link_state", state: toU8(resp.state) };
+    case "link_location":
+      return { type: "link_location", params: toU8(resp.params) };
+    case "linked":
+      return {
+        type: "linked",
+        vault_id: resp.vault_id,
+        device_id_hash: toU8(resp.device_id_hash),
+        ack_state: toU8(resp.ack_state),
+      };
     case "import_preview":
       return {
         type: "import_preview",
@@ -575,6 +631,10 @@ function responseToPlain(resp: VaultResponse): Record<string, unknown> {
       throw new Error(`unknown response: ${JSON.stringify(_exhaustive)}`);
     }
   }
+}
+
+function toU8(raw: Uint8Array | number[]): Uint8Array {
+  return raw instanceof Uint8Array ? raw : new Uint8Array(raw);
 }
 
 function bytesField(raw: unknown): number[] {
@@ -684,6 +744,28 @@ function plainToResponse(obj: Record<string, unknown>): VaultResponse {
         type: "upgrade_snapshot",
         snapshot: new Uint8Array(bytesField(obj.snapshot)),
       };
+    case "link_offer":
+      return {
+        type: "link_offer",
+        code: String(obj.code ?? ""),
+        params: new Uint8Array(bytesField(obj.params)),
+        state: new Uint8Array(bytesField(obj.state)),
+        expires_at: Number(obj.expires_at ?? 0),
+      };
+    case "link_state":
+      return { type: "link_state", state: new Uint8Array(bytesField(obj.state)) };
+    case "link_location":
+      return {
+        type: "link_location",
+        params: new Uint8Array(bytesField(obj.params)),
+      };
+    case "linked":
+      return {
+        type: "linked",
+        vault_id: String(obj.vault_id ?? ""),
+        device_id_hash: new Uint8Array(bytesField(obj.device_id_hash)),
+        ack_state: new Uint8Array(bytesField(obj.ack_state)),
+      };
     case "import_preview":
       return {
         type: "import_preview",
@@ -750,6 +832,47 @@ export function decodeUpgradeSnapshot(bytes: Uint8Array): UpgradeSnapshotV1 {
     records.push([new Uint8Array(r[0]), new Uint8Array(r[1])]);
   }
   return { v: 1, vault_id: new Uint8Array(vault_id), key_epoch, records };
+}
+
+const LINK_STATE_KEYS = ["seq", "kind", "body", "sig"];
+
+/** Encode a link-drop state (CBOR map: seq, kind, body, sig), as the Rust `LinkDropState`. */
+export function encodeLinkDropState(s: LinkDropState): Uint8Array {
+  return encodeEnvelope({
+    seq: s.seq,
+    kind: s.kind,
+    body: new Uint8Array(s.body),
+    sig: new Uint8Array(s.sig),
+  });
+}
+
+/**
+ * Decode and strictly validate a link-drop state. Throws (without echoing any
+ * bytes) on an unknown kind, a signature that is not 64 bytes, a missing or
+ * extra field, or a non-integer / negative seq.
+ */
+export function decodeLinkDropState(bytes: Uint8Array): LinkDropState {
+  const bad = () => new Error("invalid link state");
+  let obj: Record<string, unknown>;
+  try {
+    obj = decoder.decode(bytes) as Record<string, unknown>;
+  } catch {
+    throw bad();
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) throw bad();
+  const keys = Object.keys(obj);
+  if (keys.length !== LINK_STATE_KEYS.length || !LINK_STATE_KEYS.every((k) => keys.includes(k))) {
+    throw bad();
+  }
+  const seq = typeof obj.seq === "bigint" ? Number(obj.seq) : obj.seq;
+  if (typeof seq !== "number" || !Number.isSafeInteger(seq) || seq < 0) throw bad();
+  const kind = obj.kind;
+  if (kind !== "offer" && kind !== "ack" && kind !== "tombstone") throw bad();
+  const body = obj.body;
+  const sig = obj.sig;
+  if (!(body instanceof Uint8Array)) throw bad();
+  if (!(sig instanceof Uint8Array) || sig.length !== 64) throw bad();
+  return { seq, kind, body: new Uint8Array(body), sig: new Uint8Array(sig) };
 }
 
 /** Decode hex string to bytes (for golden-vector tests). */

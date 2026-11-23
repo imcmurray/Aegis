@@ -1382,6 +1382,81 @@ pub fn install_new_v2_from_document(
     Ok(session)
 }
 
+/// Link a device (D21), device B. `records` are validated `LINK_RECORD_KEYS`
+/// pairs. Unwraps the root from the record envelope with `passphrase` (a wrong
+/// passphrase fails with `AuthFailed` and nothing is written), opens the vault
+/// blob, gives it this device's own `device_id`, re-seals it, seals a fresh
+/// audit and writes everything in ONE `store.commit`. Returns the unlocked session.
+pub(crate) fn install_linked_v2(
+    store: &mut dyn SecretStore,
+    records: &[(Vec<u8>, Vec<u8>)],
+    passphrase: &str,
+) -> Result<VaultSessionV2, VaultError> {
+    let find = |key: &[u8]| {
+        records
+            .iter()
+            .find(|(k, _)| k.as_slice() == key)
+            .map(|(_, v)| v.as_slice())
+    };
+    let env_bytes =
+        find(SECRET_ENVELOPE_V2).ok_or_else(|| VaultError::Msg("vault not found".into()))?;
+    let vault_bytes =
+        find(SECRET_VAULT_V2).ok_or_else(|| VaultError::Msg("vault blob not found".into()))?;
+    let envelope = MasterEnvelopeV2::from_bytes(env_bytes)?;
+    let root = unwrap_root_for_session(passphrase, &envelope)?;
+    let vault_id = envelope.vault_id_bytes()?;
+    let blob = VaultBlobV2::from_bytes(vault_bytes)?;
+    if blob.key_epoch != envelope.key_epoch {
+        return Err(VaultError::Msg("key_epoch mismatch".into()));
+    }
+    let keys = derive_operational_keys(&root, &vault_id)?;
+    let pt = open_vault_v2(&keys.vault_dek, &blob)?;
+    let mut doc: VaultDocument =
+        ciborium::from_reader(pt.as_slice()).map_err(|e| VaultError::Serde(e.to_string()))?;
+    doc.meta.device_id = new_id();
+
+    let mut session = VaultSessionV2::from_root(root, vault_id, envelope.key_epoch, doc)?;
+    session.audit_push(AuditKind::Import, None, "linked from another device");
+
+    let mut vault_pt = Vec::new();
+    ciborium::into_writer(&session.doc, &mut vault_pt)
+        .map_err(|e| VaultError::Serde(e.to_string()))?;
+    let vault_blob = seal_vault_v2(
+        &session.keys.vault_dek,
+        session.vault_id,
+        session.key_epoch,
+        &vault_pt,
+    )?;
+    let mut audit_pt = Vec::new();
+    ciborium::into_writer(&session.audit, &mut audit_pt)
+        .map_err(|e| VaultError::Serde(e.to_string()))?;
+    let audit_blob = seal_audit_v2(
+        &session.keys.audit_dek,
+        session.vault_id,
+        session.key_epoch,
+        &audit_pt,
+    )?;
+
+    let mut ops = Vec::new();
+    for (k, v) in records {
+        if k.as_slice() == SECRET_VAULT_V2 {
+            ops.push(StoreOp::put(k.clone(), vault_blob.to_bytes()?));
+        } else {
+            ops.push(StoreOp::put(k.clone(), v.clone()));
+        }
+    }
+    ops.push(StoreOp::put(SECRET_AUDIT_V2, audit_blob.to_bytes()?));
+    for key in crate::vault::SECRET_KEYS_V2 {
+        if *key != SECRET_AUDIT_V2 && !records.iter().any(|(k, _)| k.as_slice() == *key) {
+            ops.push(StoreOp::delete(key.to_vec()));
+        }
+    }
+    store
+        .commit(&ops)
+        .map_err(|e| VaultError::Msg(format!("atomic commit failed: {e}")))?;
+    Ok(session)
+}
+
 fn unwrap_root_for_session(
     passphrase: &str,
     envelope: &MasterEnvelopeV2,
