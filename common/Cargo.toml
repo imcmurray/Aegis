@@ -9,7 +9,14 @@ autotests = false
 [features]
 default = []
 # Freenet contracts/delegates: host RNG + time via freenet-stdlib.
-freenet-host = ["dep:freenet-stdlib", "getrandom/custom"]
+# On wasm32-unknown-unknown this also supplies the getrandom 0.4 `custom`
+# backend (see src/rng.rs); it must NOT enable `wasm_js` / js-sys.
+freenet-host = ["dep:freenet-stdlib", "getrandom/custom", "dep:getrandom_04"]
+# Browser WASM (wasm-bindgen): WebCrypto getrandom 0.2 `js`, getrandom 0.4
+# `wasm_js` and js-sys time. Mutually exclusive with `freenet-host` on
+# wasm32-unknown-unknown (compile_error! in src/rng.rs). Requires
+# RUSTFLAGS='--cfg getrandom_backend="wasm_js"'.
+browser = ["getrandom/js", "dep:js-sys", "dep:getrandom_04", "getrandom_04/wasm_js"]
 # Frozen v1 fixture regen / compatibility helpers. Not a production path.
 # Enables VaultSession::create, import_bundle, and try_resume outside unit tests.
 v1-fixtures = []
@@ -41,13 +48,16 @@ ml-dsa = { workspace = true }
 ml-kem = { workspace = true }
 freenet-stdlib = { workspace = true, features = ["contract"], optional = true }
 
-# Browser WASM (no freenet-host): WebCrypto getrandom + js-sys time.
-# ml-dsa 0.1.1 default features pull getrandom 0.4, which needs `wasm_js`
-# plus the rustflag in `.cargo/config.toml` (D6).
+# wasm32-unknown-unknown only, and only behind features so Freenet
+# contract/delegate WASM never links js-sys / wasm-bindgen.
+# ml-dsa 0.1.1 default features pull getrandom 0.4: the browser build uses its
+# `wasm_js` backend, the Freenet build uses the `custom` backend (src/rng.rs).
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-getrandom = { version = "0.2", features = ["js"] }
-js-sys = "0.3"
-getrandom_04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+js-sys = { version = "0.3", optional = true }
+getrandom_04 = { package = "getrandom", version = "0.4", optional = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(getrandom_backend, values("custom", "wasm_js"))'] }
 
 [dev-dependencies]
 sha2 = { workspace = true }

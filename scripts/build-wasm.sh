@@ -12,11 +12,22 @@ echo "==> Building vault-delegate…"
 cargo build --release --target wasm32-unknown-unknown \
   -p aegis-vault-delegate --features freenet-main-delegate
 
+OUT="$ROOT/target/wasm32-unknown-unknown/release"
+
+# Freenet WASM may import only freenet_* host modules (no wasm-bindgen / env).
+# Check before building the browser crate and before staging anything.
+echo "==> Checking Freenet WASM imports…"
+python3 "$ROOT/scripts/check-wasm-imports.py" \
+  "$OUT/aegis_vault_sync.wasm" \
+  "$OUT/aegis_vault_delegate.wasm"
+
 echo "==> Building browser vault WASM (no Freenet)…"
-cargo build --release --target wasm32-unknown-unknown \
+# RUSTFLAGS is scoped to this one command: it replaces .cargo/config.toml's
+# Freenet `custom` getrandom backend with the browser `wasm_js` one.
+RUSTFLAGS='--cfg getrandom_backend="wasm_js"' \
+  cargo build --release --target wasm32-unknown-unknown \
   -p aegis-browser-wasm
 
-OUT="$ROOT/target/wasm32-unknown-unknown/release"
 UI_PUBLIC="$ROOT/ui/public"
 mkdir -p "$UI_PUBLIC" "$UI_PUBLIC/browser-wasm"
 

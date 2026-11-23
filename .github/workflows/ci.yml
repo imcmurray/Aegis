@@ -81,8 +81,24 @@ jobs:
       - name: WASM target checks
         run: |
           cargo check -p aegis-common --locked
-          cargo check -p aegis-browser-wasm --target wasm32-unknown-unknown --locked
+          RUSTFLAGS='--cfg getrandom_backend="wasm_js"' \
+            cargo check -p aegis-browser-wasm --target wasm32-unknown-unknown --locked
           cargo check -p aegis-vault-sync --target wasm32-unknown-unknown --locked --features freenet-main-contract
+          cargo check -p aegis-vault-delegate --target wasm32-unknown-unknown --locked --features freenet-main-delegate
+
+      - name: Freenet WASM imports only freenet_* modules
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --target wasm32-unknown-unknown \
+            -p aegis-vault-sync --features freenet-main-contract
+          cargo build --release --locked --target wasm32-unknown-unknown \
+            -p aegis-vault-delegate --features freenet-main-delegate
+          python3 scripts/check-wasm-imports.py \
+            target/wasm32-unknown-unknown/release/aegis_vault_sync.wasm \
+            target/wasm32-unknown-unknown/release/aegis_vault_delegate.wasm
+
+      - name: WASM import checker unit tests
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
       - name: Frozen v1 fixture checksums
         run: |

@@ -3,7 +3,7 @@ default_to_workspace = false
 
 [tasks.build]
 description = "Build common + wasm contract + wasm delegate"
-dependencies = ["build-common", "build-contract", "build-delegate"]
+dependencies = ["build-common", "build-contract", "build-delegate", "check-wasm-imports"]
 
 [tasks.build-common]
 command = "cargo"
@@ -33,6 +33,29 @@ args = [
   "aegis-vault-delegate",
   "--features",
   "freenet-main-delegate",
+]
+
+[tasks.build-browser]
+description = "Build browser WASM (wasm_js getrandom backend, no Freenet)"
+command = "cargo"
+args = [
+  "build",
+  "--release",
+  "--target",
+  "wasm32-unknown-unknown",
+  "-p",
+  "aegis-browser-wasm",
+]
+env = { RUSTFLAGS = "--cfg getrandom_backend=\"wasm_js\"" }
+
+[tasks.check-wasm-imports]
+description = "Fail if contract/delegate WASM imports any non-freenet_* module"
+dependencies = ["build-contract", "build-delegate"]
+command = "python3"
+args = [
+  "scripts/check-wasm-imports.py",
+  "target/wasm32-unknown-unknown/release/aegis_vault_sync.wasm",
+  "target/wasm32-unknown-unknown/release/aegis_vault_delegate.wasm",
 ]
 
 [tasks.test]

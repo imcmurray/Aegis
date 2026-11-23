@@ -9,6 +9,6 @@ description = "Aegis vault for the browser (wasm-bindgen) — no Freenet require
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-aegis-common = { workspace = true }
+aegis-common = { workspace = true, features = ["browser"] }
 wasm-bindgen = "=0.2.126"
 console_error_panic_hook = "0.1"

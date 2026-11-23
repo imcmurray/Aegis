@@ -78,9 +78,9 @@ See `common/src/types.rs` for the source of truth.
 
 | Layer | Choice |
 |-------|--------|
-| Contracts / delegates | Rust → `wasm32-unknown-unknown`, `freenet-stdlib` 0.8.x |
+| Contracts / delegates | Rust → `wasm32-unknown-unknown`, `freenet-stdlib` 0.12.x |
 | Shared types / crypto | `common` crate (serde + CBOR + AEAD + Argon2id) |
-| UI | TypeScript + Vite + `@freenetorg/freenet-stdlib` |
+| UI | TypeScript + Vite + `@freenetorg/freenet-stdlib` 0.4.x |
 | AEAD | XChaCha20-Poly1305 |
 | KDF | Argon2id |
 | Signatures | Ed25519 **AND** ML-DSA-65 on sync (0x0003) |

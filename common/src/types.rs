@@ -237,9 +237,9 @@ pub fn unix_now() -> u64 {
 
     #[cfg(not(feature = "freenet-host"))]
     {
-        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser"))]
         {
-            // Browser / non-Freenet WASM: js Date
+            // Browser WASM: js Date
             return (js_sys::Date::now() / 1000.0).floor().max(0.0) as u64;
         }
         #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]

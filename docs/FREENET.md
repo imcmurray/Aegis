@@ -103,6 +103,34 @@ Badge should read **`freenet delegate`** when keys work and the peer answers.
 - Response: CBOR `VaultResponse`
 - Secrets stay in the delegate secret store (same as dev server FileStore, but Freenet-managed)
 
+## WASM import rule
+
+Contract and delegate WASM may import **only `freenet_*` host modules**. A real
+node rejects anything else, so wasm-bindgen / js-sys must never reach them
+(`__wbindgen_placeholder__` and `env` imports are both fatal).
+
+- `aegis-common` feature `freenet-host`: host RNG and time via `freenet-stdlib`
+  (getrandom 0.2 custom hook + getrandom 0.4 `custom` backend). Used by the
+  contract and delegate.
+- `aegis-common` feature `browser`: WebCrypto RNG (getrandom `js` / `wasm_js`)
+  and js-sys time. Used only by `aegis-browser-wasm`. The two features are
+  mutually exclusive on wasm32-unknown-unknown (`compile_error!`).
+- `.cargo/config.toml` defaults wasm32 to `getrandom_backend="custom"`. The
+  browser build overrides it with
+  `RUSTFLAGS='--cfg getrandom_backend="wasm_js"'` (set per command, see
+  `scripts/build-wasm.sh`).
+- Check built artifacts (exit 0 = ok, 1 = violation, 2 = bad input):
+
+  ```bash
+  python3 scripts/check-wasm-imports.py \
+    target/wasm32-unknown-unknown/release/aegis_vault_sync.wasm \
+    target/wasm32-unknown-unknown/release/aegis_vault_delegate.wasm
+  ```
+
+  `scripts/build-wasm.sh`, `cargo make build` and CI run it automatically.
+- Build each WASM crate with its own `cargo build -p …` command. Never do a
+  combined `--workspace` wasm build: it unifies features and trips the guard.
+
 ## Troubleshooting
 
 | Symptom | Check |

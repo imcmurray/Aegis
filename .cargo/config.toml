@@ -1,3 +1,7 @@
-# getrandom 0.4 (via ml-dsa) requires an explicit wasm backend.
+# wasm32-unknown-unknown defaults to the Freenet contract/delegate build:
+# getrandom 0.4 (via ml-dsa) uses the `custom` backend that aegis-common
+# supplies under `freenet-host` (common/src/rng.rs → freenet host RNG).
+# The browser build (aegis-browser-wasm) overrides this per command with
+# RUSTFLAGS='--cfg getrandom_backend="wasm_js"' (see scripts/build-wasm.sh).
 [target.wasm32-unknown-unknown]
-rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+rustflags = ["--cfg", "getrandom_backend=\"custom\""]

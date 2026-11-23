@@ -9,6 +9,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT"/{wasm,ui,docs}
 
 echo "==> 1/4 WASM (browser + Freenet delegate/contract)"
+# build-wasm.sh enforces the Freenet import rule (freenet_* modules only).
 bash "$ROOT/scripts/build-wasm.sh"
 
 if [[ ! -f "$ROOT/ui/public/browser-wasm/aegis_browser_wasm.js" ]]; then

@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+Crypto suites, wire formats and the CLI protocol (`1`) are unchanged.
+
+### Fixed
+
+- A real Freenet node (freenet 0.2.16x) rejected `aegis_vault_sync.wasm` and `aegis_vault_delegate.wasm` because they imported `__wbindgen_placeholder__` / `__wbindgen_externref_xform__`. Root cause: `aegis-common` unconditionally enabled getrandom 0.2 `js`, `js-sys` and getrandom 0.4 `wasm_js` on `wasm32-unknown-unknown`, which compiled wasm-bindgen glue into the Freenet WASM. Those are now behind a new `browser` feature (used only by `aegis-browser-wasm`). The contract and delegate import only `freenet_*` host modules.
+- All Freenet randomness now comes from the host RNG (`freenet_stdlib::rand`): getrandom 0.2 through the registered custom hook, and getrandom 0.4 (reached via ml-dsa/ml-kem) through its `custom` backend. A host length mismatch panics instead of truncating or zero-padding. `.cargo/config.toml` defaults wasm32 to `getrandom_backend="custom"`; the browser build overrides it with `RUSTFLAGS='--cfg getrandom_backend="wasm_js"'`. Mixed or missing backends fail the build.
+
+### Changed
+
+- Bumped `freenet-stdlib` to 0.12.1 and `@freenetorg/freenet-stdlib` to 0.4.0.
+- CI now builds both Freenet WASMs and fails if either imports a module not starting with `freenet_` or contains `__wbindgen` (`scripts/check-wasm-imports.py`, also run by `scripts/build-wasm.sh` and `cargo make build`).
+
+### Freenet contract identity changed again
+
+The contract and delegate WASM bytes change again, so their Freenet code hashes and instance addresses change too.
+
 ## [2.0.0-rc.2] — 2026-11-22
 
 Security dependency refresh. Crypto suites, wire formats and the CLI protocol (`1`) are unchanged. Application version is `2.0.0-rc.2`.
