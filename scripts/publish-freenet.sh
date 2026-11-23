@@ -64,29 +64,38 @@ if ! fdev website list 2>/dev/null | grep -q "$WEBSITE_KEY"; then
   fdev website init "$WEBSITE_KEY"
 fi
 
-echo "==> Publishing UI web container from $RELEASE/ui"
-# Prefer update if already published once; fall back to publish
-set +e
-UPDATE_OUT=$(fdev -p "$PORT" -a "$ADDR" website update --key "$WEBSITE_KEY" "$RELEASE/ui" 2>&1)
-UPDATE_RC=$?
-set -e
-if [[ $UPDATE_RC -ne 0 ]]; then
-  echo "    update failed (first publish?) — trying publish…"
-  echo "$UPDATE_OUT" | tail -5
+# The Freenet copy of the UI gets its own CSP (node script hashes, below), so
+# it must not share a directory with the GitHub Pages build.
+FREENET_UI="$RELEASE/ui-freenet"
+rm -rf "$FREENET_UI"
+cp -a "$RELEASE/ui" "$FREENET_UI"
+
+publish_site() {
+  # Prefer update if already published once; fall back to publish
+  local out rc
   set +e
-  PUB_OUT=$(fdev -p "$PORT" -a "$ADDR" website publish --key "$WEBSITE_KEY" "$RELEASE/ui" 2>&1)
-  PUB_RC=$?
+  out=$(fdev -p "$PORT" -a "$ADDR" website update --key "$WEBSITE_KEY" "$FREENET_UI" 2>&1)
+  rc=$?
   set -e
-  echo "$PUB_OUT"
-  WEB_OUT="$PUB_OUT"
-  if [[ $PUB_RC -ne 0 ]]; then
-    echo "error: website publish failed" >&2
-    exit 1
+  if [[ $rc -ne 0 ]]; then
+    echo "    update failed (first publish?) — trying publish…" >&2
+    echo "$out" | tail -5 >&2
+    set +e
+    out=$(fdev -p "$PORT" -a "$ADDR" website publish --key "$WEBSITE_KEY" "$FREENET_UI" 2>&1)
+    rc=$?
+    set -e
+    if [[ $rc -ne 0 ]]; then
+      echo "$out" >&2
+      echo "error: website publish failed" >&2
+      exit 1
+    fi
   fi
-else
-  echo "$UPDATE_OUT" | tail -20
-  WEB_OUT="$UPDATE_OUT"
-fi
+  echo "$out"
+}
+
+echo "==> Publishing UI web container from $FREENET_UI"
+WEB_OUT=$(publish_site)
+echo "$WEB_OUT" | tail -20
 
 # Capture Freenet web URL for later (key toml only stores signing keys)
 WEB_URL=$(echo "$WEB_OUT" | grep -oE 'http://[^[:space:]]+/v1/contract/web/[^[:space:]]+' | head -1 || true)
@@ -95,6 +104,25 @@ if [[ -n "$WEB_URL" ]]; then
   WEB_URL="${WEB_URL%/}/"
   echo "$WEB_URL" > "$RELEASE/website-url.txt"
   echo "    saved $RELEASE/website-url.txt"
+fi
+
+# Freenet serves the container in a sandboxed iframe and injects inline scripts
+# (its WebSocket bridge among them). Aegis's CSP blocks inline scripts, so allow
+# exactly the node's scripts by sha256, then republish. Rerun this script after
+# upgrading the node: a changed shim means new hashes.
+if [[ -n "$WEB_URL" ]]; then
+  echo "==> Allowing the node's injected scripts in the CSP (by hash)"
+  set +e
+  python3 -I "$ROOT/scripts/freenet-csp-hashes.py" "${WEB_URL}?__sandbox=1" "$FREENET_UI/index.html"
+  CSP_RC=$?
+  set -e
+  case $CSP_RC in
+    0) echo "    republishing with the updated CSP…"; publish_site | tail -5 ;;
+    3) ;;
+    *) echo "error: could not read the node's injected scripts" >&2; exit 1 ;;
+  esac
+else
+  echo "warning: no web URL found; the CSP was not adjusted, and Aegis will show 'Bridge blocked'" >&2
 fi
 
 # --- Delegate: prefer browser RegisterDelegate (raw WASM hits fdev version errors) ---

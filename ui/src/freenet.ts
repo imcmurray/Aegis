@@ -13,6 +13,7 @@
  * after register we open a fresh connection.
  */
 
+import { BRIDGE_BLOCKED_DETAIL, freenetBridgeBlocked } from "./freenetBridge";
 import { decodeResponse, encodeRequest } from "./cbor";
 import type { VaultRequest, VaultResponse } from "./messages";
 import { isEphemeralStorage, storageGet, storageSet } from "./storage";
@@ -84,6 +85,10 @@ type ApiHandle = {
 
 export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
   try {
+    if (freenetBridgeBlocked()) {
+      console.error(`[aegis/freenet] ${BRIDGE_BLOCKED_DETAIL}`);
+      return null;
+    }
     const stdlib = await import("@freenetorg/freenet-stdlib");
     const { FreenetWsApi } = stdlib;
 

@@ -8,6 +8,7 @@ Crypto suites, wire formats and the CLI protocol (`1`) are unchanged.
 
 - A real Freenet node (freenet 0.2.16x) rejected `aegis_vault_sync.wasm` and `aegis_vault_delegate.wasm` because they imported `__wbindgen_placeholder__` / `__wbindgen_externref_xform__`. Root cause: `aegis-common` unconditionally enabled getrandom 0.2 `js`, `js-sys` and getrandom 0.4 `wasm_js` on `wasm32-unknown-unknown`, which compiled wasm-bindgen glue into the Freenet WASM. Those are now behind a new `browser` feature (used only by `aegis-browser-wasm`). The contract and delegate import only `freenet_*` host modules.
 - All Freenet randomness now comes from the host RNG (`freenet_stdlib::rand`): getrandom 0.2 through the registered custom hook, and getrandom 0.4 (reached via ml-dsa/ml-kem) through its `custom` backend. A host length mismatch panics instead of truncating or zero-padding. `.cargo/config.toml` defaults wasm32 to `getrandom_backend="custom"`; the browser build overrides it with `RUSTFLAGS='--cfg getrandom_backend="wasm_js"'`. Mixed or missing backends fail the build.
+- Freenet-hosted Aegis showed "Peer offline". Freenet 0.2.16x serves web containers in a sandboxed iframe and injects inline scripts, including the WebSocket bridge, and Aegis's CSP (`script-src 'self' 'wasm-unsafe-eval'`) blocked them. `scripts/publish-freenet.sh` now publishes a separate `ui-freenet` copy whose CSP allows exactly the node's injected scripts by sha256 (`scripts/freenet-csp-hashes.py`, read from the live node at publish time), not `'unsafe-inline'`. The GitHub Pages CSP is unchanged. If a node upgrade changes the bridge, Aegis now reports "Bridge blocked: republish" instead of "Peer offline".
 
 ### Changed
 
@@ -17,6 +18,7 @@ Crypto suites, wire formats and the CLI protocol (`1`) are unchanged.
 ### Freenet contract identity changed again
 
 The contract and delegate WASM bytes change again, so their Freenet code hashes and instance addresses change too.
+
 
 ## [2.0.0-rc.2] — 2026-11-22
 

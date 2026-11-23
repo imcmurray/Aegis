@@ -5,10 +5,13 @@
  * GitHub Pages (HTTPS) often cannot open ws://127.0.0.1 (mixed content).
  */
 
+import { BRIDGE_BLOCKED_DETAIL, freenetBridgeBlocked } from "./freenetBridge";
+
 export type PeerReason =
   | "ok"
   | "offline"
   | "mixed_content"
+  | "bridge_blocked"
   | "timeout"
   | "error"
   | "unknown";
@@ -88,6 +91,20 @@ export async function probeFreenetPeer(
     const host = resolvePeerHost();
     const wsUrl = buildWsUrl(host);
     const timeoutMs = opts?.timeoutMs ?? 2800;
+
+    if (freenetBridgeBlocked()) {
+      const probe: PeerProbe = {
+        reachable: false,
+        host,
+        wsUrl,
+        reason: "bridge_blocked",
+        label: "Bridge blocked",
+        detail: BRIDGE_BLOCKED_DETAIL,
+        checkedAt: Date.now(),
+      };
+      lastProbe = probe;
+      return probe;
+    }
 
     if (isHttpsPageToLocalPeer(host)) {
       const probe: PeerProbe = {
@@ -190,7 +207,7 @@ export async function probeFreenetPeer(
 /** Human-facing capability matrix for UI. */
 export function meshCapabilities(probe: PeerProbe | null, freenetClientConnected: boolean) {
   const peerOk = freenetClientConnected || !!probe?.reachable;
-  const blocked = probe?.reason === "mixed_content";
+  const blocked = probe?.reason === "mixed_content" || probe?.reason === "bridge_blocked";
   return {
     peerOk,
     blocked,
