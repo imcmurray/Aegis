@@ -1,3 +1,4 @@
+import { inFreenetWebContainer } from "./freenetBridge";
 import { createVaultClient, type UpgradeSource, type VaultClient } from "./client";
 import {
   CLIPBOARD_CLEAR_SECONDS,
@@ -533,6 +534,11 @@ async function render() {
 function modeLinks(): HTMLElement {
   // Collapsed “advanced” — most users stay on browser vault.
   const details = el("details", { class: "advanced-modes" });
+  // A Freenet web container always uses the node's delegate (resolveMode).
+  if (inFreenetWebContainer()) {
+    details.hidden = true;
+    return details;
+  }
   details.append(
     el("summary", {
       class: "hint",
@@ -1707,7 +1713,23 @@ async function renderVault() {
       return;
     }
     syncBtn.disabled = true;
-    statusLine.textContent = "Syncing…";
+    syncBtn.setAttribute("aria-busy", "true");
+    // A network publish can take a minute or two: show a spinner and a running
+    // clock so it visibly isn't stuck. Any later textContent write replaces it.
+    const started = Date.now();
+    const syncLabel = document.createElement("span");
+    statusLine.replaceChildren(
+      el("span", { class: "spinner", "aria-hidden": "true" }),
+      document.createTextNode(" "),
+      syncLabel,
+    );
+    const tick = () => {
+      const secs = Math.floor((Date.now() - started) / 1000);
+      syncLabel.textContent =
+        secs < 5 ? "Syncing…" : `Syncing… ${secs}s (publishing to the Freenet network can take a minute or two)`;
+    };
+    tick();
+    const ticker = window.setInterval(tick, 1000);
     try {
       // Freenet mesh: Get remote VaultSync → merge → Put/Update (owner-key identity).
       if (client.freenetApi && c.canMeshSync) {
@@ -1750,6 +1772,9 @@ async function renderVault() {
     } catch (e) {
       statusLine.textContent = `Sync: ${e instanceof Error ? e.message : String(e)}`;
     } finally {
+      window.clearInterval(ticker);
+      syncBtn.removeAttribute("aria-busy");
+      if (statusLine.contains(syncLabel)) statusLine.textContent = "Sync finished.";
       // Re-apply disabled state for freenet-without-peer
       const c2 = caps();
       syncBtn.disabled = isFreenetMode() && !c2.canMeshSync;
@@ -3450,8 +3475,38 @@ function statusNote(modal: HTMLElement, text: string) {
   modal.append(el("p", { class: "hint settings-note", text }));
 }
 
+/**
+ * Inside a Freenet web container, opening the relayed WebSocket and asking the
+ * delegate for status can take several seconds (longer on Firefox). Show a
+ * connecting screen until the first real render replaces it.
+ */
+function showConnecting(): () => void {
+  if (!inFreenetWebContainer()) return () => {};
+  const started = Date.now();
+  const detail = el("p", { class: "hint", text: "Opening a connection to the Freenet peer on this computer…" });
+  app.replaceChildren(
+    el("div", { class: "card connecting-card", role: "status", "aria-live": "polite" }, [
+      el("div", { class: "busy-row" }, [
+        el("span", { class: "spinner spinner-lg", "aria-hidden": "true" }),
+        el("h2", { text: "Connecting to your Freenet node…" }),
+      ]),
+      detail,
+    ]),
+  );
+  const timer = window.setInterval(() => {
+    const secs = Math.floor((Date.now() - started) / 1000);
+    detail.textContent =
+      secs < 4
+        ? "Opening a connection to the Freenet peer on this computer…"
+        : `Still connecting (${secs}s). This can take up to 20 seconds, especially in Firefox.`;
+  }, 1000);
+  return () => window.clearInterval(timer);
+}
+
+const stopConnecting = showConnecting();
 initClient()
   .then(() => render())
   .catch((e) => {
     app.textContent = String(e);
-  });
+  })
+  .finally(stopConnecting);

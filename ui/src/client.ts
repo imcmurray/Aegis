@@ -12,6 +12,7 @@ import { BrowserVaultClient } from "./browserClient";
 import { DevVaultClient } from "./devClient";
 import {
   tryCreateFreenetClient,
+  freenetConnectError,
   resolveMode,
   type ClientMode,
   type UpgradeResult,
@@ -36,7 +37,8 @@ class UnreachableFreenetClient implements VaultClient {
       code: "internal",
       message: freenetBridgeBlocked()
         ? BRIDGE_BLOCKED_DETAIL
-        : "Can't reach the Aegis delegate on this Freenet node. Check that the node is running, then reload this page.",
+        : "Can't reach the Aegis delegate on this Freenet node. Check that the node is running, then reload this page." +
+          (freenetConnectError() ? ` (${freenetConnectError()})` : ""),
     } as VaultResponse);
   }
 }

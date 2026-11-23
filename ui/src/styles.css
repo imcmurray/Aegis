@@ -1429,6 +1429,14 @@ button.linkish {
   font-size: 0.9rem;
 }
 
+.connecting-card .busy-row {
+  margin: 0 0 0.5rem;
+}
+
+.connecting-card h2 {
+  margin: 0;
+}
+
 /* Password generator popover */
 .gen-popover {
   position: absolute;

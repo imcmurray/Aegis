@@ -164,7 +164,7 @@ export async function publishVaultSyncState(
   paramsCbor: Uint8Array,
   stateCbor: Uint8Array,
   opts?: { forcePut?: boolean; exists?: boolean },
-): Promise<{ instanceB58: string; didPut: boolean }> {
+): Promise<{ instanceB58: string; didPut: boolean; pending: boolean }> {
   const art = await loadVaultSyncArtifacts();
   const instance = contractInstanceId(art.codeHash, paramsCbor);
   const instanceB58 = instanceIdB58(instance);
@@ -238,14 +238,37 @@ export async function publishVaultSyncState(
     }
   }
 
+  // The node stores the state locally at once but answers a Put/Update only
+  // after network routing finishes (46 s to 2 min observed on 0.2.162), while
+  // freenet-stdlib gives up on every request after a fixed 30 s. On that
+  // timeout, read the contract back: the node serves its local copy at once,
+  // and if it already holds exactly our state, the publish succeeded.
+  const confirmLocal = async (e: unknown): Promise<void> => {
+    if (!(e instanceof Error) || e.message !== "Request timeout") throw e;
+    let held: Uint8Array;
+    try {
+      const resp = await api.get(new GetRequest(key, false, false, false));
+      const st = resp.state ?? [];
+      held = st instanceof Uint8Array ? st : new Uint8Array(st);
+    } catch {
+      throw e;
+    }
+    if (!bytesEqual(held, stateCbor)) throw e;
+    console.log("[aegis/vault-sync] node holds our state; network confirmation still pending");
+  };
+
   if (exists) {
     const update = new UpdateData(
       UpdateDataType.StateUpdate,
       new StateUpdate(stateArr),
     );
-    await api.update(new UpdateRequest(key, update));
+    let pending = false;
+    await api.update(new UpdateRequest(key, update)).catch(async (e: unknown) => {
+      await confirmLocal(e);
+      pending = true;
+    });
     console.log("[aegis/vault-sync] updated", instanceB58.slice(0, 12) + "…");
-    return { instanceB58, didPut: false };
+    return { instanceB58, didPut: false, pending };
   }
 
   const code = new ContractCodeT(toNumArr(art.wasm), toNumArr(art.codeHash));
@@ -254,9 +277,21 @@ export async function publishVaultSyncState(
     ContractType.WasmContractV1,
     wasmContract,
   );
-  await api.put(new PutRequest(container, stateArr, new RelatedContractsT([]), true, false));
+  let pending = false;
+  await api
+    .put(new PutRequest(container, stateArr, new RelatedContractsT([]), true, false))
+    .catch(async (e: unknown) => {
+      await confirmLocal(e);
+      pending = true;
+    });
   console.log("[aegis/vault-sync] put", instanceB58.slice(0, 12) + "…");
-  return { instanceB58, didPut: true };
+  return { instanceB58, didPut: true, pending };
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 /**
@@ -317,7 +352,7 @@ export async function freenetVaultSyncRoundTrip(
       ? probe
       : merged;
 
-  const { instanceB58, didPut } = await publishVaultSyncState(
+  const { instanceB58, didPut, pending } = await publishVaultSyncState(
     api,
     paramsFinal,
     state,
@@ -326,7 +361,7 @@ export async function freenetVaultSyncRoundTrip(
   const ownerShort = shortOwnerId(ownerVk);
   return (
     `${shown.action}: ${shown.detail} (${merged.remote_revisions} rev) · ` +
-    `mesh ${didPut ? "put" : "update"} · owner ${ownerShort}… · id ${instanceB58.slice(0, 10)}…`
+    `mesh ${didPut ? "put" : "update"}${pending ? " (stored on this node; network still confirming)" : ""} · owner ${ownerShort}… · id ${instanceB58.slice(0, 10)}…`
   );
 }
 

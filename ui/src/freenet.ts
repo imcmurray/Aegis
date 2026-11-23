@@ -13,7 +13,7 @@
  * after register we open a fresh connection.
  */
 
-import { BRIDGE_BLOCKED_DETAIL, freenetBridgeBlocked } from "./freenetBridge";
+import { BRIDGE_BLOCKED_DETAIL, freenetBridgeBlocked, inFreenetWebContainer } from "./freenetBridge";
 import { decodeEnvelopeResponse, encodeEnvelopeRequest } from "./cbor";
 import type { VaultRequest, VaultResponse } from "./messages";
 import { isEphemeralStorage, storageGet, storageSet } from "./storage";
@@ -66,6 +66,11 @@ export type ClientMode = "browser" | "mock" | "dev" | "freenet";
  * Auto freenet when served from Freenet web container path / :7509.
  */
 export function resolveMode(): ClientMode {
+  // Inside a Freenet web container the only working backend is the node's
+  // delegate: the sandbox has no storage, so a browser vault would vanish on
+  // reload. The node's shell also mirrors in-frame navigation into the address
+  // bar, so a ?mode= picked once would otherwise stick across refreshes.
+  if (inFreenetWebContainer()) return "freenet";
   const params = new URLSearchParams(location.search);
   const m = params.get("mode") ?? params.get("vault");
   if (m === "dev" || m === "freenet" || m === "mock" || m === "browser") {
@@ -118,7 +123,14 @@ type ApiHandle = {
   alive: boolean;
 };
 
+/** Why the last tryCreateFreenetClient() returned null (shown in the UI). */
+let lastConnectError = "";
+export function freenetConnectError(): string {
+  return lastConnectError;
+}
+
 export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
+  lastConnectError = "";
   try {
     if (freenetBridgeBlocked()) {
       console.error(`[aegis/freenet] ${BRIDGE_BLOCKED_DETAIL}`);
@@ -156,11 +168,14 @@ export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
       new Promise((resolve, reject) => {
         const pending: Pending[] = [];
         let opened = false;
+        // Inside a web container the socket is relayed through the node's
+        // shell page (postMessage), which can take several seconds to open in
+        // a busy browser; 5 s was too tight.
         const openTimer = setTimeout(() => {
           if (!opened) {
-            reject(new Error(`Freenet peer not reachable at ${wsUrlString}`));
+            reject(new Error(`Freenet peer did not answer within 20 s at ${wsUrlString}`));
           }
-        }, 5000);
+        }, 20_000);
 
         const handle: ApiHandle = {
           api: { sendRequest: undefined },
@@ -234,6 +249,7 @@ export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
 
     let handle = await connect().catch((e) => {
       console.warn("[aegis/freenet]", e);
+      lastConnectError = e instanceof Error ? e.message : String(e);
       return null;
     });
     if (!handle) return null;
@@ -511,6 +527,7 @@ export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
     return client;
   } catch (e) {
     console.warn("[aegis/freenet] setup failed:", e);
+    lastConnectError = `setup failed: ${e instanceof Error ? e.message : String(e)}`;
     return null;
   }
 }
