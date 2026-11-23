@@ -464,17 +464,20 @@ async function committedFiles(): Promise<void> {
   const uiRaw = read("../public/aegis_vault_delegate.history.json");
   assert(histRaw === uiRaw, "UI history copy is byte-identical");
   const hist = parseDelegateHistory(JSON.parse(histRaw));
-  assert(hist.length === 1, "exactly one seed entry");
-  assert(hist[0].version === "2.0.0-rc.2+freenet-session", "seed version");
+  // Append-only, newest first (D20): every release prepends the outgoing
+  // delegate, so the oldest seed entry stays last.
+  assert(hist.length >= 1, "history has entries");
+  const seed = hist[hist.length - 1];
+  assert(seed.version === "2.0.0-rc.2+freenet-session", "seed version");
+  assert(seed.code_hash_b58 === "Br4YLkPvZRsPcfoLLLfgqbANQje11mCSB3ysN2QMLhb1", "seed hash");
   assert(
-    hist[0].code_hash_b58 === "Br4YLkPvZRsPcfoLLLfgqbANQje11mCSB3ysN2QMLhb1",
-    "seed hash",
-  );
-  assert(
-    hist[0].capabilities.length === 1 && hist[0].capabilities[0] === "session_token",
+    seed.capabilities.length === 1 && seed.capabilities[0] === "session_token",
     "seed capabilities",
   );
-  assert(!supportsExportForUpgrade(hist[0]), "seed lacks export_for_upgrade");
+  assert(!supportsExportForUpgrade(seed), "seed lacks export_for_upgrade");
+  assert(new Set(hist.map((h) => h.code_hash_b58)).size === hist.length, "no duplicate hashes");
+  const currentHash = (JSON.parse(read("../public/aegis_vault_delegate.hash.json")) as { code_hash_b58: string }).code_hash_b58;
+  assert(!hist.some((h) => h.code_hash_b58 === currentHash), "current delegate is not in its own history");
 
   const hashJson = JSON.parse(read("../public/aegis_vault_delegate.hash.json")) as {
     instance_key_bytes: number[];

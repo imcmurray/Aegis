@@ -37,7 +37,16 @@ UI_PUBLIC="$ROOT/ui/public"
 mkdir -p "$UI_PUBLIC" "$UI_PUBLIC/browser-wasm"
 
 cp -f "$OUT/aegis_vault_delegate.wasm" "$UI_PUBLIC/aegis_vault_delegate.wasm"
-cp -f "$OUT/aegis_vault_sync.wasm" "$UI_PUBLIC/aegis_vault_sync.wasm"
+# The VaultSync contract is PINNED (contracts/vault-sync/pinned/README.md): its
+# code hash is part of every user's sync-contract address, so stage the released
+# binary, never an incidental rebuild.
+PINNED_SYNC="$ROOT/contracts/vault-sync/pinned/aegis_vault_sync.wasm"
+if ! cmp -s "$OUT/aegis_vault_sync.wasm" "$PINNED_SYNC"; then
+  echo "warning: the fresh vault-sync build differs from the pinned release contract." >&2
+  echo "  Staging the PINNED contract so existing sync contracts keep their address." >&2
+  echo "  To ship a new sync contract on purpose, see contracts/vault-sync/pinned/README.md." >&2
+fi
+cp -f "$PINNED_SYNC" "$UI_PUBLIC/aegis_vault_sync.wasm"
 cp -f "$OUT/aegis_link_drop.wasm" "$UI_PUBLIC/aegis_link_drop.wasm"
 
 if command -v wasm-bindgen >/dev/null 2>&1; then

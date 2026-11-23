@@ -13,6 +13,9 @@ Crypto suites, wire formats and the CLI protocol (`1`) are unchanged.
 
 - Freenet web container: a "Connecting to your Freenet node…" screen with a spinner and elapsed time shows while the peer connection opens, and Sync shows a spinner with a running clock.
 
+- The released VaultSync contract is now pinned (`contracts/vault-sync/pinned/`, code hash `7cFe…`). The contract links shared `aegis-common` code, so unrelated changes (this release's link-a-device code among them) changed the compiled WASM and would have moved every vault to a new, empty sync contract. `build-wasm.sh` stages the pinned binary and warns when a fresh build differs; CI fails if the staged contract is not the pinned one, and now also builds and import-checks the link-drop contract.
+- Delegate history: the outgoing `4LJn…` delegate (session tokens + `export_for_upgrade`) is prepended, so existing Freenet vaults move to this release's delegate with their identity preserved.
+
 ### Fixed
 
 - Freenet web container on Firefox showed "freenet (unreachable)": Firefox's first relayed WebSocket attempt fails and the node's shell retries it, which took longer than the UI's 5 s open timeout. The open timeout is now 20 s, and the peer probe allows 20 s inside a container. A real connection failure now shows the underlying error.

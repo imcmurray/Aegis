@@ -85,6 +85,7 @@ jobs:
             cargo check -p aegis-browser-wasm --target wasm32-unknown-unknown --locked
           cargo check -p aegis-vault-sync --target wasm32-unknown-unknown --locked --features freenet-main-contract
           cargo check -p aegis-vault-delegate --target wasm32-unknown-unknown --locked --features freenet-main-delegate
+          cargo check -p aegis-link-drop --target wasm32-unknown-unknown --locked --features freenet-main-contract
 
       - name: Freenet WASM imports only freenet_* modules
         run: |
@@ -93,9 +94,20 @@ jobs:
             -p aegis-vault-sync --features freenet-main-contract
           cargo build --release --locked --target wasm32-unknown-unknown \
             -p aegis-vault-delegate --features freenet-main-delegate
+          cargo build --release --locked --target wasm32-unknown-unknown \
+            -p aegis-link-drop --features freenet-main-contract
           python3 scripts/check-wasm-imports.py \
             target/wasm32-unknown-unknown/release/aegis_vault_sync.wasm \
-            target/wasm32-unknown-unknown/release/aegis_vault_delegate.wasm
+            target/wasm32-unknown-unknown/release/aegis_vault_delegate.wasm \
+            target/wasm32-unknown-unknown/release/aegis_link_drop.wasm \
+            contracts/vault-sync/pinned/aegis_vault_sync.wasm
+
+      - name: Staged VaultSync contract is the pinned release
+        run: |
+          # The sync contract's code hash is part of every user's contract address
+          # (contracts/vault-sync/pinned/README.md). The UI must ship the pinned binary.
+          cmp ui/public/aegis_vault_sync.wasm contracts/vault-sync/pinned/aegis_vault_sync.wasm
+          grep -q '"code_hash_b58": "7cFetG8bR6BLUcXxKDnuAVLkrTMvAWwLV7duz7vzRth"' ui/public/aegis_vault_sync.hash.json
 
       - name: WASM import checker unit tests
         run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
