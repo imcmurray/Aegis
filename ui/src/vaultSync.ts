@@ -117,6 +117,17 @@ export async function getRemoteVaultSyncState(
   api: FreenetContractApi,
   paramsCbor: Uint8Array,
 ): Promise<Uint8Array> {
+  return (await getRemoteVaultSyncStateFound(api, paramsCbor)).state;
+}
+
+/**
+ * Like getRemoteVaultSyncState, but also reports whether the contract exists,
+ * so a sync does not search the network for it a second time before publishing.
+ */
+export async function getRemoteVaultSyncStateFound(
+  api: FreenetContractApi,
+  paramsCbor: Uint8Array,
+): Promise<{ state: Uint8Array; found: boolean }> {
   const art = await loadVaultSyncArtifacts();
   const instance = contractInstanceId(art.codeHash, paramsCbor);
   const stdlib = await import("@freenetorg/freenet-stdlib");
@@ -136,11 +147,11 @@ export async function getRemoteVaultSyncState(
   try {
     const resp = await api.get(new GetRequest(key, false, false, false));
     const st = resp.state;
-    if (!st || (Array.isArray(st) && st.length === 0)) return new Uint8Array(0);
-    return st instanceof Uint8Array ? st : new Uint8Array(st);
+    if (!st || (Array.isArray(st) && st.length === 0)) return { state: new Uint8Array(0), found: true };
+    return { state: st instanceof Uint8Array ? st : new Uint8Array(st), found: true };
   } catch (e) {
     console.log("[aegis/vault-sync] get miss/empty:", e);
-    return new Uint8Array(0);
+    return { state: new Uint8Array(0), found: false };
   }
 }
 
@@ -152,7 +163,7 @@ export async function publishVaultSyncState(
   api: FreenetContractApi,
   paramsCbor: Uint8Array,
   stateCbor: Uint8Array,
-  opts?: { forcePut?: boolean },
+  opts?: { forcePut?: boolean; exists?: boolean },
 ): Promise<{ instanceB58: string; didPut: boolean }> {
   const art = await loadVaultSyncArtifacts();
   const instance = contractInstanceId(art.codeHash, paramsCbor);
@@ -185,7 +196,7 @@ export async function publishVaultSyncState(
     PutRequest: new (
       container: unknown,
       state: number[],
-      related: null,
+      related: unknown,
       subscribe?: boolean,
       blocking?: boolean,
     ) => unknown;
@@ -206,13 +217,19 @@ export async function publishVaultSyncState(
   const { ContractCodeT } = common as {
     ContractCodeT: new (data: number[], codeHash: number[]) => unknown;
   };
+  // freenet-stdlib 0.4: Put.related_contracts is a required table; null fails
+  // to encode ("FlatBuffers: field 8 must be set") and the Put is never sent.
+  const clientRequest = await import("@freenetorg/freenet-stdlib/client-request");
+  const { RelatedContractsT } = clientRequest as {
+    RelatedContractsT: new (contracts?: unknown[]) => unknown;
+  };
 
   const key = new ContractKey(instance, art.codeHash);
   const stateArr = toNumArr(stateCbor);
   const paramsArr = toNumArr(paramsCbor);
 
-  let exists = false;
-  if (!opts?.forcePut) {
+  let exists = opts?.exists ?? false;
+  if (!opts?.forcePut && opts?.exists === undefined) {
     try {
       await api.get(new GetRequest(key, false, false, false));
       exists = true;
@@ -237,7 +254,7 @@ export async function publishVaultSyncState(
     ContractType.WasmContractV1,
     wasmContract,
   );
-  await api.put(new PutRequest(container, stateArr, null, true, false));
+  await api.put(new PutRequest(container, stateArr, new RelatedContractsT([]), true, false));
   console.log("[aegis/vault-sync] put", instanceB58.slice(0, 12) + "…");
   return { instanceB58, didPut: true };
 }
@@ -275,7 +292,7 @@ export async function freenetVaultSyncRoundTrip(
     return `local ${probe.action}: ${probe.detail} (${probe.remote_revisions ?? 0} rev) — no owner key for mesh`;
   }
 
-  const remote = await getRemoteVaultSyncState(api, params);
+  const { state: remote, found } = await getRemoteVaultSyncStateFound(api, params);
   // Re-sync merging real remote (if any)
   const merged =
     remote.length > 0 ? await syncFn(remote) : probe;
@@ -292,14 +309,23 @@ export async function freenetVaultSyncRoundTrip(
     return `${merged.action}: ${merged.detail} (${merged.remote_revisions} rev) — nothing to publish`;
   }
 
+  // The probe (empty remote) already folds local changes into the delegate's
+  // persistent sync buffer and reports "pushed"; the merge call then sees them
+  // as present and says "up_to_date". Report the step that did the work.
+  const shown =
+    merged.action === "up_to_date" && probe.action && probe.action !== "up_to_date"
+      ? probe
+      : merged;
+
   const { instanceB58, didPut } = await publishVaultSyncState(
     api,
     paramsFinal,
     state,
+    { exists: found },
   );
   const ownerShort = shortOwnerId(ownerVk);
   return (
-    `${merged.action}: ${merged.detail} (${merged.remote_revisions} rev) · ` +
+    `${shown.action}: ${shown.detail} (${merged.remote_revisions} rev) · ` +
     `mesh ${didPut ? "put" : "update"} · owner ${ownerShort}… · id ${instanceB58.slice(0, 10)}…`
   );
 }
