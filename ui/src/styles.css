@@ -1793,3 +1793,15 @@ button.linkish {
 .removed-notice .btn-tiny {
   flex-shrink: 0;
 }
+
+/* Spacing that used to be inline style attributes (blocked by CSP style-src 'self'). */
+.gen-actions {
+  margin-top: 0.5rem;
+}
+.toolbar .toolbar-search {
+  flex: 2;
+  margin: 0;
+}
+.settings-close {
+  margin-top: 1rem;
+}

@@ -315,7 +315,7 @@ function showGeneratorPopover(
     symbols,
     el("label", { text: "Preview" }),
     preview,
-    el("div", { class: "row", style: "margin-top:0.5rem" }, [regen, use, close]),
+    el("div", { class: "row gen-actions" }, [regen, use, close]),
   );
 
   // Position near anchor within the detail panel
@@ -2070,7 +2070,7 @@ async function renderVault() {
   const search = el("input", {
     type: "search",
     placeholder: "Search…",
-    style: "flex:2;margin:0",
+    class: "toolbar-search",
   }) as HTMLInputElement;
   const lockBtn = el("button", { text: "Lock" }) as HTMLButtonElement;
   const exportBtn = el("button", { text: "Export" }) as HTMLButtonElement;
@@ -4016,7 +4016,7 @@ function showSettingsModal(
 
   const close = el("button", {
     text: "Close",
-    style: "margin-top:1rem",
+    class: "settings-close",
   }) as HTMLButtonElement;
   close.addEventListener("click", () => overlay.remove());
   modal.append(close);
