@@ -1,5 +1,10 @@
 [
   {
+    "version": "2.0.0-rc.2+remote-changes",
+    "code_hash_b58": "8dVMxzMhqEHRYx8bmah9e3vttT1SQSqC4nKbTpmzgFZd",
+    "capabilities": ["session_token", "export_for_upgrade"]
+  },
+  {
     "version": "2.0.0-rc.2+freenet-upgrade",
     "code_hash_b58": "4LJnhHwRU8YWDZyGr3q1Avz31yp4gUJzuDLFAQXf7hd2",
     "capabilities": ["session_token", "export_for_upgrade"]

@@ -9,11 +9,11 @@ on:
       ref:
         description: Git ref to build
         required: true
-        default: v2.0.0-rc.2
+        default: v2.0.1
       release_tag:
         description: Release tag to attach assets to (empty skips upload)
         required: false
-        default: v2.0.0-rc.2
+        default: v2.0.1
   release:
     types: [published]
 

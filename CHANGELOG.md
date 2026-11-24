@@ -2,7 +2,11 @@
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-11-23
+
 Crypto suites, wire formats and the CLI protocol (`1`) are unchanged.
+
+**Upgrading a Freenet vault:** the vault delegate moves to `e5UywvwwzwWHdPo2GpEDdZ1VQgRAxaXpb75rMXCSwBo` (the version bump alone changes the WASM). Open Aegis with `?register=1`, choose **Upgrade your vault** and enter your passphrase; the previous delegate `8dVM…` is in the upgrade history and exports the vault with its identity, so the vault ID, entries and sync contract stay the same. The VaultSync (`7cFe…`) and link-drop (`7NMw…`) contracts are pinned and do not move.
 
 ### Added
 

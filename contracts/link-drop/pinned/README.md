@@ -1,7 +1,7 @@
 # Pinned link-drop contract
 
 `aegis_link_drop.wasm` here is the **released** link-drop contract (D21), code
-hash `7NMwr14MSTivJ4e968vCXed5BZA2iKpqnXheaMoy36d1`, first shipped in 2.0.0-rc.3.
+hash `7NMwr14MSTivJ4e968vCXed5BZA2iKpqnXheaMoy36d1`, first shipped in 2.0.1.
 
 Both devices derive the link contract's address from the link code AND this
 code hash. If the two computers ran builds with different link-drop WASM, the
