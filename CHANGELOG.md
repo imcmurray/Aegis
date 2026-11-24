@@ -20,6 +20,7 @@ Crypto suites, wire formats and the CLI protocol (`1`) are unchanged.
 
 ### Fixed
 
+- Firefox inside the Freenet web container could show "freenet (unreachable)" after a reload. Firefox holds back new WebSocket connections to a host for a while after failed or interrupted ones (RFC 6455 §7.2.3), so the relayed socket can take 30 s or more to start. Aegis now waits up to 90 s there (20 s elsewhere) instead of giving up at 20 s, and the connecting screen explains the wait.
 - Freenet web container on Firefox showed "freenet (unreachable)": Firefox's first relayed WebSocket attempt fails and the node's shell retries it, which took longer than the UI's 5 s open timeout. The open timeout is now 20 s, and the peer probe allows 20 s inside a container. A real connection failure now shows the underlying error.
 - Freenet Sync reported "Request timeout" although the publish succeeded: the node answers a Put/Update only after network routing (46 s to 2 min observed), and freenet-stdlib gives up after 30 s. On that timeout Sync now reads the contract back and reports success when the node already holds exactly the published state ("stored on this node; network still confirming").
 - Downloads (Recovery Kit, `.aegis` backup, share files) did nothing in a Freenet web container on Firefox: a `blob:` download from the sandboxed opaque-origin frame becomes `blob:null/…`, which the node shell's CSP blocks. Inside a container Aegis now hands the file to the shell's download relay (`postMessage` to the serving node's origin only).

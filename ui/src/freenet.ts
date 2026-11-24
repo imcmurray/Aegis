@@ -13,7 +13,12 @@
  * after register we open a fresh connection.
  */
 
-import { BRIDGE_BLOCKED_DETAIL, freenetBridgeBlocked, inFreenetWebContainer } from "./freenetBridge";
+import {
+  BRIDGE_BLOCKED_DETAIL,
+  CONTAINER_OPEN_TIMEOUT_MS,
+  freenetBridgeBlocked,
+  inFreenetWebContainer,
+} from "./freenetBridge";
 import { decodeEnvelopeResponse, encodeEnvelopeRequest } from "./cbor";
 import type { VaultRequest, VaultResponse } from "./messages";
 import { isEphemeralStorage, storageGet, storageSet } from "./storage";
@@ -169,13 +174,21 @@ export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
         const pending: Pending[] = [];
         let opened = false;
         // Inside a web container the socket is relayed through the node's
-        // shell page (postMessage), which can take several seconds to open in
-        // a busy browser; 5 s was too tight.
+        // shell page (postMessage). Firefox also throttles WebSocket reconnects
+        // to a host after failed/interrupted attempts (RFC 6455 §7.2.3), so a
+        // reload can wait 30 s or more before the socket even starts; the
+        // socket then opens fine. Waiting is the only fix: give up only after
+        // CONTAINER_OPEN_TIMEOUT_MS (90 s).
+        const openTimeoutMs = inWebContainer ? CONTAINER_OPEN_TIMEOUT_MS : 20_000;
         const openTimer = setTimeout(() => {
           if (!opened) {
-            reject(new Error(`Freenet peer did not answer within 20 s at ${wsUrlString}`));
+            reject(
+              new Error(
+                `Freenet peer did not answer within ${openTimeoutMs / 1000} s at ${wsUrlString}`,
+              ),
+            );
           }
-        }, 20_000);
+        }, openTimeoutMs);
 
         const handle: ApiHandle = {
           api: { sendRequest: undefined },

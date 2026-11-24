@@ -4064,7 +4064,9 @@ function showConnecting(): () => void {
     detail.textContent =
       secs < 4
         ? "Opening a connection to the Freenet peer on this computer…"
-        : `Still connecting (${secs}s). This can take up to 20 seconds, especially in Firefox.`;
+        : secs < 20
+          ? `Still connecting (${secs}s). This can take up to 20 seconds, especially in Firefox.`
+          : `Still connecting (${secs}s). After a reload Firefox can hold back new connections to the node for up to a minute; Aegis keeps waiting.`;
   }, 1000);
   return () => window.clearInterval(timer);
 }

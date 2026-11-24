@@ -65,3 +65,6 @@ export function freenetShellDownload(bytes: Uint8Array, filename: string): void 
     nodeOrigin,
   );
 }
+
+/** How long to wait for the relayed WebSocket inside a Freenet web container. */
+export const CONTAINER_OPEN_TIMEOUT_MS = 90_000;

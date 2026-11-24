@@ -5,7 +5,12 @@
  * GitHub Pages (HTTPS) often cannot open ws://127.0.0.1 (mixed content).
  */
 
-import { BRIDGE_BLOCKED_DETAIL, freenetBridgeBlocked, inFreenetWebContainer } from "./freenetBridge";
+import {
+  BRIDGE_BLOCKED_DETAIL,
+  CONTAINER_OPEN_TIMEOUT_MS,
+  freenetBridgeBlocked,
+  inFreenetWebContainer,
+} from "./freenetBridge";
 
 export type PeerReason =
   | "ok"
@@ -93,7 +98,7 @@ export async function probeFreenetPeer(
     // In a Freenet web container the socket is relayed through the node's shell
     // page; Firefox's first relayed attempt can fail and be retried, so allow
     // longer there than for a direct connection.
-    const timeoutMs = opts?.timeoutMs ?? (inFreenetWebContainer() ? 20_000 : 2800);
+    const timeoutMs = opts?.timeoutMs ?? (inFreenetWebContainer() ? CONTAINER_OPEN_TIMEOUT_MS : 2800);
 
     if (freenetBridgeBlocked()) {
       const probe: PeerProbe = {
