@@ -1863,18 +1863,58 @@ function renderUnlock() {
     placeholder: "Master passphrase",
   }) as HTMLInputElement;
   const btn = el("button", { class: "primary", text: "Unlock" }) as HTMLButtonElement;
+  const progress = el("p", { class: "hint unlock-progress", role: "status", "aria-live": "polite" });
+  let busy = false;
   const submit = async () => {
+    if (busy) return;
     setError(card, null);
-    btn.disabled = true;
     const passphrase = takePassword(pw);
-    const resp = await client.request({ op: "unlock", passphrase });
-    btn.disabled = false;
-    if (resp.type === "error") {
-      setError(card, resp.message);
-      return;
+    if (!passphrase) return;
+    // Key derivation (Argon2id) runs inside the delegate and can take tens of
+    // seconds on a Freenet node: show a spinner and a running clock so the
+    // button visibly isn't stuck. The vault list render is covered too.
+    busy = true;
+    btn.disabled = true;
+    pw.disabled = true;
+    btn.setAttribute("aria-busy", "true");
+    btn.replaceChildren(
+      el("span", { class: "spinner button-spinner", "aria-hidden": "true" }),
+      document.createTextNode(" Unlocking…"),
+    );
+    const started = Date.now();
+    const tick = () => {
+      const secs = Math.floor((Date.now() - started) / 1000);
+      progress.textContent =
+        secs < 3
+          ? ""
+          : `Unlocking… ${secs}s. This can take up to a minute on a Freenet node.`;
+    };
+    const ticker = window.setInterval(tick, 1000);
+    const reset = () => {
+      window.clearInterval(ticker);
+      busy = false;
+      btn.disabled = false;
+      pw.disabled = false;
+      btn.removeAttribute("aria-busy");
+      btn.textContent = "Unlock";
+      progress.textContent = "";
+    };
+    try {
+      const resp = await client.request({ op: "unlock", passphrase });
+      if (resp.type === "error") {
+        reset();
+        setError(card, resp.message);
+        pw.focus();
+        return;
+      }
+      unlockedViaRecovery = false;
+      await render();
+    } catch (e) {
+      reset();
+      setError(card, e instanceof Error ? e.message : String(e));
+    } finally {
+      window.clearInterval(ticker);
     }
-    unlockedViaRecovery = false;
-    await render();
   };
   btn.addEventListener("click", submit);
   pw.addEventListener("keydown", (e) => {
@@ -1884,7 +1924,7 @@ function renderUnlock() {
   const primaryFields = el("div", { class: "unlock-primary-fields" });
   primaryFields.append(el("label", { text: "Master passphrase" }), pw);
   primary.append(primaryFields, btn);
-  card.append(primary);
+  card.append(primary, progress);
 
   // Secondary paths side-by-side on wide screens (less vertical scroll).
   const alts = el("div", { class: "unlock-alts" });

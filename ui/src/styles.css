@@ -1408,6 +1408,18 @@ button.linkish {
   flex-shrink: 0;
 }
 
+/* Spinner inside a filled button: follow the button's text colour. */
+.spinner.button-spinner {
+  border-color: color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  width: 0.9em;
+  height: 0.9em;
+}
+
+.unlock-progress:empty {
+  display: none;
+}
+
 .spinner.spinner-lg {
   width: 1.35rem;
   height: 1.35rem;
