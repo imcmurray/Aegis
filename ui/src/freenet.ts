@@ -6,11 +6,12 @@
  *
  * Keys (in priority order):
  *   1. ?delegateKey=&codeHash=
- *   2. localStorage aegis.delegateKey / aegis.codeHash
- *   3. ui/public/aegis_vault_delegate.hash.json (instance key + code hash)
+ *   2. ui/public/aegis_vault_delegate.hash.json (instance key + code hash)
+ *   3. localStorage aegis.delegateKey / aegis.codeHash (dev fallback)
  *
- * Auto-register only when `?register=1` — large WASM can drop the WS (1006);
- * after register we open a fresh connection.
+ * Registration: if the delegate does not answer the startup status probe, the
+ * staged WASM is registered automatically and the socket reopened (first run on
+ * a new peer, or a new release). `?register=1` forces it up front.
  */
 
 import {
@@ -260,45 +261,51 @@ export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
         handle.api = api as unknown as FreenetWsApiLike;
       });
 
-    let handle = await connect().catch((e) => {
+    const first = await connect().catch((e) => {
       console.warn("[aegis/freenet]", e);
       lastConnectError = e instanceof Error ? e.message : String(e);
       return null;
     });
-    if (!handle) return null;
+    if (!first) return null;
+    let handle: ApiHandle = first;
 
     // Load keys from URL / localStorage / staged hash file — do NOT register yet.
     let keys = await resolveDelegateKeys();
 
-    // Only register when explicitly requested. Large WASM can drop the WS (1006).
-    if (params.get("register") === "1") {
-      console.log("[aegis/freenet] register=1 — sending RegisterDelegate…");
+    /**
+     * Register the staged delegate WASM on this peer, then reopen the socket.
+     * A large RegisterDelegate can drop the WS (1006), and a fresh socket also
+     * discards any late reply to a request that timed out before registering.
+     * Re-registering the same code is harmless: secrets are keyed by delegate
+     * key, so an existing vault on this peer is untouched.
+     */
+    const registerAndReconnect = async (): Promise<boolean> => {
       try {
         const registered = await tryRegisterDelegate(handle.api);
-        if (registered) {
-          keys = registered;
-          // Peer may drop the socket after a large register; open a fresh one.
-          if (!handle.alive) {
-            console.log("[aegis/freenet] reconnecting after register…");
-            handle = await connect();
-          } else {
-            // Give the runtime a moment, then reconnect anyway for a clean state.
-            await sleep(300);
-            try {
-              handle = await connect();
-            } catch {
-              /* keep existing if still alive */
-            }
-          }
-        }
+        if (!registered) return false;
+        keys = registered;
+        // Give the runtime a moment before reconnecting for a clean state.
+        if (handle.alive) await sleep(300);
+        handle = await connect();
+        return true;
       } catch (e) {
         console.warn("[aegis/freenet] register failed:", e);
-        // Reconnect if register killed the socket
         if (!handle.alive) {
-          handle = await connect().catch(() => null);
-          if (!handle) return null;
+          const h = await connect().catch(() => null);
+          if (h) handle = h;
         }
+        return false;
       }
+    };
+
+    // ?register=1 forces a register up front. Without it, a peer that has never
+    // seen this delegate is detected by the status probe below and registered
+    // automatically (first run of Aegis on a new node, or a new release).
+    const forceRegister = params.get("register") === "1";
+    if (forceRegister) {
+      console.log("[aegis/freenet] register=1 — sending RegisterDelegate…");
+      await registerAndReconnect();
+      if (!handle.alive) return null;
     }
 
     if (!keys) {
@@ -518,23 +525,35 @@ export async function tryCreateFreenetClient(): Promise<VaultClient | null> {
       },
     };
 
-    // Short status probe (non-fatal)
-    try {
-      const status = await Promise.race([
-        client.request({ op: "status" }),
-        sleep(6000).then(() => {
-          throw new Error("status probe timeout");
-        }),
-      ]);
-      console.log("[aegis/freenet] status", status);
-      if (status.type === "error") {
-        console.warn("[aegis/freenet] status error:", status.message);
+    // Status probe. Any reply (even an error response) means the delegate is
+    // registered. No reply means this peer has never seen this delegate build:
+    // register it ourselves instead of failing every request with a timeout.
+    const probe = async (timeoutMs: number): Promise<boolean> => {
+      if (!keys) return false;
+      try {
+        const status = await requestTo(keys, { op: "status" }, { timeoutMs });
+        console.log("[aegis/freenet] status", status);
+        if (status.type === "error") {
+          console.warn("[aegis/freenet] status error:", status.message);
+        }
+        return true;
+      } catch (e) {
+        console.warn("[aegis/freenet] status probe failed:", e);
+        return false;
       }
-    } catch (e) {
-      console.warn(
-        "[aegis/freenet] status probe failed (UI still usable if peer recovers):",
-        e,
-      );
+    };
+
+    if (keys && !(await probe(6000)) && !forceRegister) {
+      console.log("[aegis/freenet] delegate not answering — registering it on this peer…");
+      if (await registerAndReconnect()) {
+        current = handle;
+        // The node compiles a ~2 MB WASM on first use; allow it time.
+        if (!(await probe(30_000))) {
+          console.warn(
+            "[aegis/freenet] delegate still silent after registering (UI still usable if peer recovers)",
+          );
+        }
+      }
     }
 
     return client;
@@ -744,12 +763,7 @@ async function tryRegisterDelegate(
 
 async function resolveDelegateKeys(): Promise<DelegateKeys | null> {
   const params = new URLSearchParams(location.search);
-  const keyB58 =
-    params.get("delegateKey") ?? storageGet("aegis.delegateKey");
-  const hashB58 =
-    params.get("codeHash") ?? storageGet("aegis.codeHash");
-
-  if (keyB58 && hashB58) {
+  const fromB58 = (keyB58: string, hashB58: string): DelegateKeys | null => {
     try {
       return {
         keyBytes: Array.from(bs58Decode(keyB58)),
@@ -759,32 +773,53 @@ async function resolveDelegateKeys(): Promise<DelegateKeys | null> {
       };
     } catch (e) {
       console.warn("[aegis/freenet] bad base58 keys", e);
+      return null;
     }
+  };
+
+  // 1. Explicit URL override.
+  const urlKey = params.get("delegateKey");
+  const urlHash = params.get("codeHash");
+  if (urlKey && urlHash) {
+    const k = fromB58(urlKey, urlHash);
+    if (k) return k;
   }
 
+  // 2. The delegate this build ships. It must win over localStorage: every web
+  //    container on a node shares the node's origin, so keys cached by an older
+  //    Aegis build would otherwise pin this one to a stale (or unregistered)
+  //    delegate. Older vaults are reached through the D20 history, not here.
   try {
     const hashUrl = new URL("aegis_vault_delegate.hash.json", location.href).href;
     const res = await fetch(hashUrl);
-    if (!res.ok) return null;
-    const j = (await res.json()) as {
-      code_hash_b58: string;
-      code_hash_bytes: number[];
-      instance_key_b58?: string;
-      instance_key_bytes?: number[];
-    };
-    if (j.code_hash_bytes.length !== 32) return null;
-    const inst =
-      j.instance_key_bytes && j.instance_key_bytes.length === 32
-        ? j.instance_key_bytes
-        : j.code_hash_bytes;
-    return {
-      keyBytes: [...inst],
-      hashBytes: [...j.code_hash_bytes],
-      keyB58: j.instance_key_b58 ?? j.code_hash_b58,
-      hashB58: j.code_hash_b58,
-    };
+    if (res.ok) {
+      const j = (await res.json()) as {
+        code_hash_b58: string;
+        code_hash_bytes: number[];
+        instance_key_b58?: string;
+        instance_key_bytes?: number[];
+      };
+      if (j.code_hash_bytes.length === 32) {
+        const inst =
+          j.instance_key_bytes && j.instance_key_bytes.length === 32
+            ? j.instance_key_bytes
+            : j.code_hash_bytes;
+        return {
+          keyBytes: [...inst],
+          hashBytes: [...j.code_hash_bytes],
+          keyB58: j.instance_key_b58 ?? j.code_hash_b58,
+          hashB58: j.code_hash_b58,
+        };
+      }
+    }
   } catch {
-    return null;
+    /* fall through */
   }
+
+  // 3. Keys saved by a manual register (dev setups without a staged hash file).
+  const storedKey = storageGet("aegis.delegateKey");
+  const storedHash = storageGet("aegis.codeHash");
+  if (storedKey && storedHash) return fromB58(storedKey, storedHash);
+  return null;
 }
 

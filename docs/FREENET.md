@@ -43,7 +43,18 @@ freenet local
 
 ## 3. Register the vault-delegate
 
-### Option A — from the UI (experimental)
+**Automatic (default):** on startup Aegis sends a `status` request to its
+delegate. If the peer does not answer within 6 s (it has never seen this
+delegate build: a new node, or a new release), Aegis registers the staged WASM
+itself, reconnects, and probes again (up to 30 s while the node compiles it).
+The first visit on a new node takes about 20 s longer; later visits skip this.
+Re-registering the same code does not touch an existing vault. The staged
+`aegis_vault_delegate.hash.json` takes priority over keys cached in
+`localStorage`, because every web container on a node shares one origin.
+
+The manual options below remain for debugging.
+
+### Option A — from the UI (forces a register)
 
 ```bash
 cd ui && npm run dev
