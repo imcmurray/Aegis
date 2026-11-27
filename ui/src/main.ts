@@ -403,10 +403,11 @@ function buildHeader(): HTMLElement {
       title: `Aegis ${AEGIS_VERSION}`,
     }),
   );
-  const header = el("header", { class: "app-header" }, [
+  const brand = el("div", { class: "brand" }, [
     el("h1", {}, ["Aegis ", el("span", { text: "Password Manager" })]),
-    badges,
+    el("a", { class: "about-link", href: "welcome.html", text: "About" }),
   ]);
+  const header = el("header", { class: "app-header" }, [brand, badges]);
   return header;
 }
 

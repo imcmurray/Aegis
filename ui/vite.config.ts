@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+
+const rootDir = dirname(fileURLToPath(import.meta.url));
 
 const pkg = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
@@ -57,6 +61,13 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: true,
+    rollupOptions: {
+      // welcome.html is the marketing page. index.html stays the vault.
+      input: {
+        main: resolve(rootDir, "index.html"),
+        welcome: resolve(rootDir, "welcome.html"),
+      },
+    },
   },
   define: {
     __AEGIS_VERSION__: JSON.stringify(pkg.version),

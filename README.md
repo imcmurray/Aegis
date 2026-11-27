@@ -10,6 +10,7 @@
 | **Developers** | Optional `?mode=dev` Rust server |
 
 > **Try it:** after deploy → `https://YOUR_USER.github.io/Aegis/`  
+> **About Aegis:** [imcmurray.github.io/Aegis/welcome.html](https://imcmurray.github.io/Aegis/welcome.html) — the marketing page; the vault stays at the link above.  
 > Local: `./scripts/deploy-github-pages.sh` then `npx serve dist/freenet-release/ui -l 4173`
 
 ## For end users

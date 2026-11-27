@@ -258,6 +258,26 @@ a.button-link-disabled {
   pointer-events: auto;
 }
 
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.about-link {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  width: fit-content;
+}
+
+.about-link:hover {
+  color: var(--accent);
+}
+
 header.app-header h1 {
   margin: 0;
   font-size: 1.4rem;
