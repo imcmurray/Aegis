@@ -94,6 +94,30 @@ publish_site() {
   echo "$out"
 }
 
+# Freenet serves the container in a sandboxed iframe and injects inline scripts
+# (its WebSocket bridge among them). Aegis's CSP blocks inline scripts, so allow
+# exactly the node's scripts by sha256. Rerun this script after upgrading the
+# node: a changed shim means new hashes.
+#
+# Read the hashes BEFORE publishing when this key already has a container on
+# the node: then the network only ever receives one version, with the right
+# CSP. fdev versions an update by Unix time in seconds, so a quick
+# publish-then-republish can give both the same version, and other nodes keep
+# the first (hashless) one: Aegis shows "Bridge blocked" there.
+csp_hashes() {
+  set +e
+  python3 -I "$ROOT/scripts/freenet-csp-hashes.py" "$1" "$FREENET_UI/index.html"
+  local rc=$?
+  set -e
+  return $rc
+}
+PREV_CONTRACT=$(awk -v k="$WEBSITE_KEY" '$1 == k { print $2 }' <<<"$(fdev website list 2>/dev/null)")
+if [[ -n "$PREV_CONTRACT" ]]; then
+  echo "==> Allowing the node's injected scripts in the CSP (read from the live container)"
+  csp_hashes "http://$ADDR:$PORT/v1/contract/web/$PREV_CONTRACT/?__sandbox=1" || [[ $? -eq 3 ]] \
+    || echo "    (could not read the live container; falling back to publish + republish)"
+fi
+
 echo "==> Publishing UI web container from $FREENET_UI"
 WEB_OUT=$(publish_site)
 echo "$WEB_OUT" | tail -20
@@ -107,19 +131,16 @@ if [[ -n "$WEB_URL" ]]; then
   echo "    saved $RELEASE/website-url.txt"
 fi
 
-# Freenet serves the container in a sandboxed iframe and injects inline scripts
-# (its WebSocket bridge among them). Aegis's CSP blocks inline scripts, so allow
-# exactly the node's scripts by sha256, then republish. Rerun this script after
-# upgrading the node: a changed shim means new hashes.
+# Check the CSP against the container we just published. Normally a no-op (the
+# hashes went in above); on a first-ever publish, or after a node upgrade, it
+# changes and we republish, waiting so the republish gets a higher version.
 if [[ -n "$WEB_URL" ]]; then
-  echo "==> Allowing the node's injected scripts in the CSP (by hash)"
-  set +e
-  python3 -I "$ROOT/scripts/freenet-csp-hashes.py" "${WEB_URL}?__sandbox=1" "$FREENET_UI/index.html"
-  CSP_RC=$?
-  set -e
+  echo "==> Verifying the CSP allows the node's injected scripts"
+  CSP_RC=0
+  csp_hashes "${WEB_URL}?__sandbox=1" || CSP_RC=$?
   case $CSP_RC in
-    0) echo "    republishing with the updated CSP…"; publish_site | tail -5 ;;
-    3) ;;
+    0) echo "    republishing with the updated CSP…"; sleep 2; publish_site | tail -5 ;;
+    3) echo "    CSP already up to date" ;;
     *) echo "error: could not read the node's injected scripts" >&2; exit 1 ;;
   esac
 else
@@ -130,7 +151,7 @@ fi
 if [[ "$PUBLISH_DELEGATE" -eq 1 ]]; then
   echo "==> Vault-delegate"
   echo "    Skip CLI publish (fdev rejects unpackaged WASM: 'unsupported incremental API version')."
-  echo "    Register from the UI instead (recommended): open the web URL with &register=1"
+  echo "    Aegis registers it itself on the first visit to the web container on a new node."
 fi
 
 # --- VaultSync template contract (empty MVR; real instances use per-owner params) ---
