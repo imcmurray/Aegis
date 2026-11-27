@@ -478,10 +478,28 @@ async function render() {
   if (!status.has_vault) {
     let source: UpgradeSource | null = null;
     if (client.findUpgradeSource) {
+      // Asks each earlier delegate build for a vault (D20). On a node where
+      // those were never registered every ask times out, one after another:
+      // up to ~15 s. Show that work instead of a blank page.
+      const searching = el("div", { class: "card connecting-card", role: "status", "aria-live": "polite" }, [
+        el("div", { class: "busy-row" }, [
+          el("span", { class: "spinner spinner-lg", "aria-hidden": "true" }),
+          el("h2", { text: "Checking this node for an existing vault…" }),
+        ]),
+        el("p", {
+          class: "hint",
+          text: "Looking for a vault saved by an earlier Aegis version. This can take up to 15 seconds the first time.",
+        }),
+      ]);
+      // Cached after the first search: skip the card when the answer is instant.
+      const showTimer = window.setTimeout(() => app.append(searching), 250);
       try {
         source = await client.findUpgradeSource();
       } catch {
         source = null;
+      } finally {
+        window.clearTimeout(showTimer);
+        searching.remove();
       }
     }
     if (source) renderUpgrade(source);
