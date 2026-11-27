@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-11-27
+
+Application crate version stays `2.0.1`. A workspace version bump would move the Freenet vault delegate, and nothing in this tag needs that. Crypto suites, wire formats, the delegate, and CLI protocol `1` are unchanged.
+
+### Changed
+
+- The attested CLI workflow (`.github/workflows/cli-release.yml`) pins every action to a full commit SHA. This tag rebuilds the linux-x86_64 binary from that workflow. omarchy-aegis verifies that artifact.
+- Freenet publish reads the node's CSP script hashes from the live container and publishes once. A first-ever publish still republishes, after a 2 second wait, so the version is higher. `fdev` versions an update by Unix time in seconds, and a same-second republish could leave other nodes on the hashless copy (`Bridge blocked`).
+- A peer that has never seen the vault delegate registers it on startup. The staged `aegis_vault_delegate.hash.json` wins over keys cached in `localStorage`. The page shows a spinner while it looks for a vault saved by an earlier delegate.
+
 ## [2.0.1] - 2026-11-23
 
 Crypto suites, wire formats and the CLI protocol (`1`) are unchanged.
