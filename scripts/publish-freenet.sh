@@ -59,7 +59,8 @@ if ! (echo >/dev/tcp/"$ADDR"/"$PORT") 2>/dev/null; then
 fi
 
 echo "==> Website signing key: $WEBSITE_KEY"
-if ! fdev website list 2>/dev/null | grep -q "$WEBSITE_KEY"; then
+# Capture first: under pipefail, `| grep -q` can SIGPIPE fdev and read as "missing".
+if ! grep -qw -- "$WEBSITE_KEY" <<<"$(fdev website list 2>/dev/null)"; then
   echo "    creating key (fdev website init $WEBSITE_KEY)…"
   fdev website init "$WEBSITE_KEY"
 fi
@@ -163,8 +164,7 @@ echo
 echo "Done."
 if [[ -n "${WEB_URL:-}" ]]; then
   echo "  • Web container:  ${WEB_URL}"
-  echo "  • First visit:    ${WEB_URL}?register=1"
-  echo "  • After register: ${WEB_URL}"
+  echo "    (the first visit on a new node registers the vault-delegate itself; ~20 s)"
   echo "  • (saved in $RELEASE/website-url.txt — back up ~/.config/freenet/website-keys/${WEBSITE_KEY}.toml)"
 else
   echo "  • Open the website URL printed above during publish"
