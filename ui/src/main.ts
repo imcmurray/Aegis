@@ -584,6 +584,10 @@ async function render() {
   await renderVault();
 }
 
+/** Aegis's web container (the `aegis` website key), via freenet.org's open-on-your-node link. */
+const FREENET_SHARE_URL =
+  "https://freenet.org/open?via=local#CUzRTmveVzsTxBbpRbeTmrLr3q8HLpRSHQ8vSa2o3XDd/";
+
 function modeLinks(): HTMLElement {
   // Collapsed “advanced” — most users stay on browser vault.
   const details = el("details", { class: "advanced-modes" });
@@ -601,7 +605,10 @@ function modeLinks(): HTMLElement {
   const row = el("p", { class: "hint" }, [
     el("a", { href: "?mode=browser", text: "browser" }),
     " (default) · ",
-    el("a", { href: "?mode=freenet", text: "freenet" }),
+    // The published web container, opened on the visitor's own node. (A
+    // ?mode=freenet link from GitHub Pages can't work: the node refuses
+    // WebSockets from that origin.)
+    el("a", { href: FREENET_SHARE_URL, text: "freenet" }),
     " · ",
     el("a", { href: "?mode=dev", text: "dev (Rust)" }),
     " · ",
@@ -3623,43 +3630,37 @@ function showSettingsModal(
             ? c.blocked
               ? "Unavailable on HTTPS static hosting. Use local Freenet HTTP UI."
               : "Requires a running Freenet peer (`freenet local`)."
-            : "Switch to Freenet mode (below) while a peer is online.",
+            : "Open Aegis on Freenet (below) while a peer is online.",
         syncNow,
       );
 
-      // Switch to Freenet mode
-      body.append(el("h3", { class: "settings-subhead", text: "Enable Freenet backend" }));
-      const freenetLink = el("a", {
-        href: "?mode=freenet&register=1",
-        class: c.canUseFreenetMode ? "button-link" : "button-link button-link-disabled",
-        text: c.canUseFreenetMode
-          ? "Open Freenet mode & register delegate"
-          : "Freenet mode (peer required)",
-      }) as HTMLAnchorElement;
-      if (!c.canUseFreenetMode) {
-        freenetLink.setAttribute("aria-disabled", "true");
-        freenetLink.addEventListener("click", (e) => {
-          e.preventDefault();
-          window.alert(
-            c.blocked
-              ? "Browsers block Freenet WebSockets from HTTPS pages like GitHub Pages.\n\n" +
-                "Run: freenet local\nThen open Aegis at http://127.0.0.1:7509/… or http://localhost with Vite/serve."
-              : "Start a Freenet peer first:\n\n  freenet local\n\nThen click Check again, and open Freenet mode.",
-          );
-        });
-      } else {
+      // Open Aegis's web container on Freenet. Inside it, you're already there.
+      // (It registers its own delegate on a new node, so no ?register=1.)
+      if (!inFreenetWebContainer()) {
+        body.append(el("h3", { class: "settings-subhead", text: "Use Aegis on Freenet" }));
+        const freenetLink = el("a", {
+          href: FREENET_SHARE_URL,
+          class: "button-link",
+          text: "Open Aegis on Freenet",
+        }) as HTMLAnchorElement;
         freenetLink.addEventListener("click", (e) => {
           if (
             !confirm(
-              "Freenet mode uses the peer’s secret store (separate from the browser vault on this page). " +
+              "Aegis on Freenet keeps its vault in your Freenet node's secret store, separate from the browser vault on this page. " +
                 "Export a backup first if you want to move this vault. Continue?",
             )
           ) {
             e.preventDefault();
           }
         });
+        body.append(freenetLink);
+        body.append(
+          el("p", {
+            class: "hint",
+            text: "Needs a Freenet node running on this computer. The first visit sets Aegis up on the node (about 20 seconds).",
+          }),
+        );
       }
-      body.append(freenetLink);
       body.append(
         el("p", {
           class: "hint",
