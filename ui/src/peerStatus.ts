@@ -180,7 +180,7 @@ export async function probeFreenetPeer(
           wsUrl,
           reason: "ok",
           label: "Peer online",
-          detail: `Freenet peer reachable at ${host}. Mesh Sync and Freenet mode can use this peer.`,
+          detail: `Freenet peer reachable at ${host}. Mesh Sync and Aegis on Freenet can use this peer.`,
           checkedAt: Date.now(),
         });
       };
