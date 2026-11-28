@@ -104,9 +104,19 @@ publish_site() {
 # CSP. fdev versions an update by Unix time in seconds, so a quick
 # publish-then-republish can give both the same version, and other nodes keep
 # the first (hashless) one: Aegis shows "Bridge blocked" there.
+#
+# Every HTML page in the container is a document Freenet may inject into.
+# index.html and welcome.html get the same script-src hashes. The hashes come
+# from the node, not from the page, so a new HTML file does not change them.
+mapfile -d '' FREENET_HTML < <(find "$FREENET_UI" -name '*.html' -print0 | sort -z)
+if [[ ${#FREENET_HTML[@]} -eq 0 ]]; then
+  echo "error: no HTML pages in $FREENET_UI" >&2
+  exit 1
+fi
+
 csp_hashes() {
   set +e
-  python3 -I "$ROOT/scripts/freenet-csp-hashes.py" "$1" "$FREENET_UI/index.html"
+  python3 -I "$ROOT/scripts/freenet-csp-hashes.py" "$1" "${FREENET_HTML[@]}"
   local rc=$?
   set -e
   return $rc

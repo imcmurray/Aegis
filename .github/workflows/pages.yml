@@ -65,19 +65,20 @@ jobs:
 
       - name: Production HTML has CSP and no remote scripts
         run: |
-          html=dist/freenet-release/ui/index.html
-          test -f "$html"
-          grep -F 'http-equiv="Content-Security-Policy"' "$html"
-          grep -F "default-src 'self'" "$html"
-          grep -F "script-src 'self' 'wasm-unsafe-eval'" "$html"
-          if grep -F 'frame-ancestors' "$html"; then
-            echo "frame-ancestors in a meta CSP is ignored by CSP3; do not include it" >&2
-            exit 1
-          fi
-          if grep -E -i '<script[^>]+src=["'\'']https?://' "$html"; then
-            echo "remote script src forbidden" >&2
-            exit 1
-          fi
+          for html in dist/freenet-release/ui/index.html dist/freenet-release/ui/welcome.html; do
+            test -f "$html"
+            grep -F 'http-equiv="Content-Security-Policy"' "$html"
+            grep -F "default-src 'self'" "$html"
+            grep -F "script-src 'self' 'wasm-unsafe-eval'" "$html"
+            if grep -F 'frame-ancestors' "$html"; then
+              echo "frame-ancestors in a meta CSP is ignored by CSP3; do not include it: $html" >&2
+              exit 1
+            fi
+            if grep -E -i '<script[^>]+src=["'\'']https?://' "$html"; then
+              echo "remote script src forbidden: $html" >&2
+              exit 1
+            fi
+          done
 
       - name: Add Pages SPA base note
         run: |

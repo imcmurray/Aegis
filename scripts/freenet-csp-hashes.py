@@ -8,15 +8,16 @@ shell, plus clipboard/title helpers). Aegis's production CSP is
 app cannot reach the node, so it reports "Peer offline".
 
 Instead of opening 'unsafe-inline', this reads the exact scripts the node
-injects and adds their sha256 hashes to script-src in the Freenet copy of
-index.html. Aegis ships no inline scripts of its own, so every inline script in
-the served page belongs to the node.
+injects and adds their sha256 hashes to script-src in every Freenet HTML page
+(the vault and welcome.html). Aegis ships no inline scripts of its own, so
+every inline script in a served page belongs to the node. The hash list is the
+node's, not the page's: a new page still needs those same hashes.
 
 Usage:
-  freenet-csp-hashes.py <sandbox-url> <index.html>
+  freenet-csp-hashes.py <sandbox-url> <page.html> [page.html ...]
       Fetch <sandbox-url> (the container URL with ?__sandbox=1), then rewrite
-      <index.html>'s CSP meta so script-src lists exactly those hashes.
-      Exit 0 = file changed, 3 = already up to date, 1 = error.
+      each page's CSP meta so script-src lists exactly those hashes.
+      Exit 0 = at least one file changed, 3 = already up to date, 1 = error.
 """
 import base64
 import hashlib
@@ -57,30 +58,46 @@ def patch_csp(csp: str, hashes: list[str]) -> str:
     return "; ".join(out)
 
 
-def main() -> int:
-    if len(sys.argv) != 3:
-        print(__doc__, file=sys.stderr)
-        return 1
-    url, path = sys.argv[1], sys.argv[2]
-    hashes = node_script_hashes(url)
-    if not hashes:
-        print("node injected no inline scripts; CSP left unchanged")
-        return 3
-    html = open(path, encoding="utf-8").read()
+def apply_hashes(path: str, hashes: list[str]) -> int:
+    """Rewrite one page. 0 = changed, 3 = already current, 1 = no CSP meta."""
+    with open(path, encoding="utf-8") as fh:
+        html = fh.read()
     m = META_CSP.search(html)
     if not m:
         print(f"{path}: no CSP meta tag", file=sys.stderr)
         return 1
     new_csp = patch_csp(m.group(2), hashes)
     if new_csp == m.group(2):
-        print(f"CSP already allows the node's {len(hashes)} injected scripts")
+        print(f"{path}: CSP already allows the node's {len(hashes)} injected scripts")
         return 3
-    html = html[: m.start(2)] + new_csp + html[m.end(2):]
-    open(path, "w", encoding="utf-8").write(html)
-    print(f"CSP script-src now allows the node's {len(hashes)} injected scripts:")
-    for h in hashes:
-        print(f"  {h}")
+    html = html[: m.start(2)] + new_csp + html[m.end(2) :]
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(html)
+    print(f"{path}: CSP script-src now allows the node's {len(hashes)} injected scripts")
     return 0
+
+
+def main() -> int:
+    if len(sys.argv) < 3:
+        print(__doc__, file=sys.stderr)
+        return 1
+    url, paths = sys.argv[1], sys.argv[2:]
+    hashes = node_script_hashes(url)
+    if not hashes:
+        print("node injected no inline scripts; CSP left unchanged")
+        return 3
+    changed = False
+    for path in paths:
+        rc = apply_hashes(path, hashes)
+        if rc == 1:
+            return 1
+        if rc == 0:
+            changed = True
+    if changed:
+        for h in hashes:
+            print(f"  {h}")
+        return 0
+    return 3
 
 
 if __name__ == "__main__":
